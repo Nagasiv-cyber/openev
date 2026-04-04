@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity | Swarm Orchestrator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-background">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+    
+    <div class="app-container">
+        <header class="glass-panel main-header">
+            <div class="branding">
+                <h1>ANTIGRAVITY</h1>
+                <span class="version">v2.0 Orchestrator</span>
+            </div>
+            <div class="global-metrics">
+                <div class="metric">
+                    <span class="label">Total Swarm Network P&L</span>
+                    <span class="value success" id="global-pnl">$0.00</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Composite Sharpe</span>
+                    <span class="value" id="global-sharpe">0.00</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Active Agents</span>
+                    <span class="value" id="active-agents">0</span>
+                </div>
+            </div>
+            <div class="controls">
+                <button id="btn-killswitch" class="btn btn-danger">Halt Trading</button>
+            </div>
+        </header>
+
+        <div class="dashboard-grid">
+            <!-- Left panel: Event stream -->
+            <aside class="glass-panel event-log">
+                <h2>System Events & Alerts</h2>
+                <div class="log-container" id="log-feed">
+                    <div class="log-entry info">
+                        <span class="time">[--:--:--]</span> <span class="msg">System initialized. Awaiting orchestrator connection...</span>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main view: Agent matrix -->
+            <main class="glass-panel agent-matrix">
+                <div class="matrix-header">
+                    <h2>Live Agent Swarm <span class="badge">Monitoring 100 Instances</span></h2>
+                    <div class="filters">
+                        <select id="strategy-filter">
+                            <option value="all">All Strategies</option>
+                            <option value="RiskAwareHybridTrader">Risk Aware Hybrid</option>
+                            <option value="AltDataDrivenTrader">Alt-Data</option>
+                            <option value="HFTMeanReversionist">HFT</option>
+                            <option value="DeFiArbitrageur">DeFi</option>
+                            <option value="CrossExchangeArbitrageur">Cross-Exchange</option>
+                            <option value="GreedyAgent">Greedy</option>
+                            <option value="RandomAgent">Random</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="agents-grid" id="agents-grid">
+                    <!-- Agent cards will be injected here -->
+                    <div class="loader-state">Connecting to Orchestrator Node...</div>
+                </div>
+            </main>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
