@@ -27,4 +27,6 @@ ml = [
 ]
 
 [project.scripts]
+server = "server.app:main"
 serve = "server.app:main"
+start = "server.app:main"
