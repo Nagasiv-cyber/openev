@@ -70,6 +70,7 @@ class TradingObservation:
     # Episode info
     done: bool = False
     reward: Optional[float] = None
+    grader_score: Optional[float] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -77,6 +78,7 @@ class TradingObservation:
 class TradingState:
     """Episode metadata and state tracking"""
     episode_id: str
+    task_id: str
     step_count: int
     elapsed_time: float
     
@@ -94,4 +96,5 @@ class TradingState:
     total_arbitrage_found: int
     arbitrage_captured: int
     
+    grader_score: Optional[float] = None
     metadata: Dict[str, Any] = field(default_factory=dict)

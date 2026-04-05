@@ -29,10 +29,10 @@ class ResetResponse(BaseModel):
     """Response from reset endpoint"""
     market_snapshots: List[Dict[str, Any]]
     portfolio: Dict[str, Any]
-    net_worth: float
     pnl: float
     pnl_percent: float
     done: bool
+    grader_score: Optional[float] = None
 
 
 class StepResponse(BaseModel):
@@ -41,9 +41,9 @@ class StepResponse(BaseModel):
     portfolio: Dict[str, Any]
     net_worth: float
     pnl: float
-    pnl_percent: float
     reward: float
     done: bool
+    grader_score: Optional[float] = None
     arbitrage_opportunities: List[Dict[str, Any]]
 
 
@@ -60,6 +60,7 @@ class StateResponse(BaseModel):
     win_rate: float
     total_arbitrage_found: int
     arbitrage_captured: int
+    grader_score: Optional[float] = None
 
 
 # ============================================================================
@@ -101,6 +102,7 @@ def _observation_to_dict(obs: TradingObservation) -> Dict[str, Any]:
         "pnl_percent": obs.pnl_percent,
         "done": obs.done,
         "reward": obs.reward,
+        "grader_score": obs.grader_score,
         "arbitrage_opportunities": obs.arbitrage_opportunities,
     }
 
@@ -116,13 +118,13 @@ async def health():
 
 
 @app.post("/reset")
-async def reset():
+async def reset(task_id: str = "survival"):
     """
     Reset environment endpoint.
     
     Returns initial observation.
     """
-    env = TradingEnvironment(initial_cash=100000.0, num_assets=3)
+    env = TradingEnvironment(initial_cash=100000.0, num_assets=3, task_id=task_id)
     session_id = f"session_{id(env)}"
     environments[session_id] = env
     
@@ -193,6 +195,7 @@ async def state(session_id: str):
         "win_rate": state.win_rate,
         "total_arbitrage_found": state.total_arbitrage_found,
         "arbitrage_captured": state.arbitrage_captured,
+        "grader_score": state.grader_score,
     }
 
 

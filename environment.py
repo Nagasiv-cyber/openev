@@ -28,16 +28,18 @@ class TradingEnvironment:
     - Portfolio tracking with P&L calculation
     """
     
-    def __init__(self, initial_cash: float = 100000.0, num_assets: int = 3):
+    def __init__(self, initial_cash: float = 100000.0, num_assets: int = 3, task_id: str = "survival"):
         """
         Initialize the trading environment.
         
         Args:
             initial_cash: Starting capital in USD
             num_assets: Number of tradeable assets
+            task_id: "survival", "arbitrage", or "drawdown"
         """
         self.initial_cash = initial_cash
         self.num_assets = num_assets
+        self.task_id = task_id
         
         # Asset pairs to trade
         self.asset_pairs = [
@@ -302,6 +304,24 @@ class TradingEnvironment:
                     self.arbitrage_captured += 1
         
         return reward
+
+    def _get_grader_score(self, current_net_worth: float) -> float:
+        """Calculate score from 0.0 to 1.0 based on the current task"""
+        if self.task_id == "survival":
+            if current_net_worth >= self.initial_cash:
+                return 1.0
+            else:
+                loss_ratio = (self.initial_cash - current_net_worth) / self.initial_cash
+                return max(0.0, 1.0 - (loss_ratio * 2.0))
+        elif self.task_id == "arbitrage":
+            return min(self.arbitrage_captured / 5.0, 1.0)
+        elif self.task_id == "drawdown":
+            if self.max_drawdown <= 0.05 and current_net_worth > self.initial_cash:
+                return 1.0
+            # penalize linear
+            score = 1.0 - (self.max_drawdown / 0.1)
+            return max(0.0, score)
+        return 0.0
     
     def _get_observation(self) -> TradingObservation:
         """Generate current observation"""
@@ -359,6 +379,7 @@ class TradingEnvironment:
             pnl=pnl,
             pnl_percent=pnl_percent,
             done=False,
+            grader_score=self._get_grader_score(current_net_worth),
             metadata={
                 "market_regime": self.market_regime,
                 "trend": trend,
@@ -380,4 +401,5 @@ class TradingEnvironment:
             win_rate=self.winning_trades / max(1, self.trades_executed),
             total_arbitrage_found=self.arbitrage_opportunities_found,
             arbitrage_captured=self.arbitrage_captured,
+            grader_score=self._get_grader_score(self.cash + sum(self.positions[p] * self.market_prices[p] for p in self.asset_pairs)),
         )
