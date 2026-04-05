@@ -4,7 +4,7 @@ Serves the environment via HTTP + WebSocket
 """
 
 from fastapi import FastAPI, WebSocket, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 import json
@@ -76,6 +76,82 @@ app = FastAPI(
 # Global environment instance (per-session in production)
 environments: Dict[str, TradingEnvironment] = {}
 
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>OpenEnv Trading Environment</title>
+        <style>
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+                display: flex; 
+                justify-content: center; 
+                align-items: center; 
+                height: 100vh; 
+                margin: 0; 
+                background-color: #0f172a; 
+                color: #f8fafc; 
+            }
+            .container { 
+                text-align: center; 
+                padding: 3rem; 
+                background-color: #1e293b; 
+                border-radius: 1rem; 
+                box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); 
+                border: 1px solid #334155;
+            }
+            h1 { color: #38bdf8; margin-top: 0; margin-bottom: 0.5rem; font-size: 2.5rem; }
+            .subtitle { color: #94a3b8; font-size: 1.1rem; margin-bottom: 2rem; }
+            .status { 
+                display: inline-block; 
+                padding: 0.5rem 1rem; 
+                background-color: rgba(16, 185, 129, 0.1); 
+                color: #34d399; 
+                border: 1px solid rgba(16, 185, 129, 0.2);
+                border-radius: 9999px; 
+                font-size: 0.875rem; 
+                font-weight: 600; 
+                margin-bottom: 2rem; 
+            }
+            .links { display: flex; gap: 1rem; justify-content: center; }
+            a { 
+                display: inline-block;
+                padding: 0.75rem 1.5rem;
+                background-color: #38bdf8;
+                color: #0f172a; 
+                text-decoration: none; 
+                font-weight: 600; 
+                border-radius: 0.5rem;
+                transition: background-color 0.2s;
+            }
+            a:hover { background-color: #7dd3fc; }
+            .api-link {
+                background-color: transparent;
+                border: 1px solid #38bdf8;
+                color: #38bdf8;
+            }
+            .api-link:hover {
+                background-color: rgba(56, 189, 248, 0.1);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🚀 OpenEnv Trading</h1>
+            <div class="subtitle">Production-ready RL environment for quantitative trading</div>
+            <div class="status">● API Status: Operational</div>
+            <div class="links">
+                <a href="/docs">Interactive Documentation</a>
+                <a href="/health" class="api-link">Health Check</a>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
 
 def _observation_to_dict(obs: TradingObservation) -> Dict[str, Any]:
     """Convert observation to JSON-serializable dict"""
