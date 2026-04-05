@@ -6,7 +6,7 @@ Serves the environment via HTTP + WebSocket
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import json
 import asyncio
 
