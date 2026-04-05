@@ -7,7 +7,7 @@ name = "openev"
 version = "1.0.0"
 description = "OpenEnv Arbitrage Environment"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.104.1",
     "uvicorn>=0.24.0",
@@ -15,7 +15,8 @@ dependencies = [
     "python-multipart>=0.0.6",
     "httpx>=0.25.1",
     "requests>=2.31.0",
-    "openai>=1.12.0"
+    "openai>=1.12.0",
+    "openenv-core>=0.2.0"
 ]
 
 [project.optional-dependencies]
@@ -24,3 +25,6 @@ ml = [
     "transformers>=4.36.0",
     "trl>=0.8.0"
 ]
+
+[project.scripts]
+serve = "server.app:main"
