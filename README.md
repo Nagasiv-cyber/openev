@@ -1,3 +1,13 @@
+---
+title: OpenEnv Arbitrage
+emoji: 🚀
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_file: app.py
+pinned: false
+---
+
 # OpenEnv Trading Environment 🚀
 
 **Production-ready RL environment for quantitative trading and arbitrage detection**
