@@ -1,30 +1,20 @@
 import os
 import json
 import requests
-import time
+from openai import OpenAI
 
-# Required Environment Variables
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4-turbo")
-HF_TOKEN = os.environ.get("HF_TOKEN", "dummy-token")
+# Environment variables injected by the OpenEnv validator
+# DO NOT hardcode these — the validator provides them at runtime
+API_BASE_URL = os.environ["API_BASE_URL"]   # LiteLLM proxy URL (required)
+API_KEY      = os.environ["API_KEY"]        # LiteLLM proxy key (required)
+MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4-turbo")
 ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
 
-
-def llm_chat(prompt: str) -> str:
-    """Call an OpenAI-compatible chat endpoint using raw HTTP (no openai package needed)."""
-    url = f"{API_BASE_URL.rstrip('/')}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0,
-    }
-    resp = requests.post(url, headers=headers, json=payload, timeout=30)
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"].strip()
+# Initialize the OpenAI client pointing at the validator's LiteLLM proxy
+client = OpenAI(
+    base_url=API_BASE_URL,
+    api_key=API_KEY,
+)
 
 
 def run_inference(task_id: str = "survival"):
@@ -70,11 +60,16 @@ Respond only with a JSON object in this format:
 {{"action": "BUY", "asset_pair": "BTC/USD", "quantity": 1.0}}
 """
 
-        # Query the LLM via raw HTTP (no openai package dependency)
+        # Query the LLM through the validator's LiteLLM proxy
         try:
-            action_text = llm_chat(prompt)
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+            )
+            action_text = response.choices[0].message.content.strip()
 
-            # Simple fallback if the model doesn't return pure JSON
+            # Parse JSON from model output
             if "```json" in action_text:
                 action_text = action_text.split("```json")[1].split("```")[0].strip()
             elif "```" in action_text:
@@ -83,7 +78,7 @@ Respond only with a JSON object in this format:
             action_dict = json.loads(action_text)
 
         except Exception:
-            # Fallback action on failure to keep the loop going safely
+            # Safe fallback — keeps the episode running without crashing
             action_dict = {"action": "HOLD", "asset_pair": "BTC/USD", "quantity": 0.0}
 
         # Step the environment
