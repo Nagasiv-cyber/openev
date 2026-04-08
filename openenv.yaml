@@ -8,39 +8,40 @@ environment:
     reset: "/reset"
     step: "/step/{session_id}"
     state: "/state/{session_id}"
+    grade: "/grade/{session_id}"
 
 tasks:
   - id: "survival"
     name: "Capital Survival"
     description: "Maintain a final net worth greater than the initial starting cash."
-    reward_range: [0.0, 1.0]
+    reward_range: [0.001, 0.999]
     grader:
-      endpoint: "/state/{session_id}"
-      score_field: "grader_score"
+      endpoint: "/grade/{session_id}"
+      score_key: "score"
 
   - id: "arbitrage"
     name: "Arbitrage Hunter"
     description: "Detect and capture at least 5 simulated arbitrage opportunities."
-    reward_range: [0.0, 1.0]
+    reward_range: [0.001, 0.999]
     grader:
-      endpoint: "/state/{session_id}"
-      score_field: "grader_score"
+      endpoint: "/grade/{session_id}"
+      score_key: "score"
 
   - id: "drawdown"
     name: "Drawdown Control"
     description: "Maintain maximum drawdown below 5% while remaining profitable."
-    reward_range: [0.0, 1.0]
+    reward_range: [0.001, 0.999]
     grader:
-      endpoint: "/state/{session_id}"
-      score_field: "grader_score"
+      endpoint: "/grade/{session_id}"
+      score_key: "score"
 
   - id: "momentum"
     name: "Momentum Trading"
     description: "Execute profitable trades consistently to build a positive momentum score."
-    reward_range: [0.0, 1.0]
+    reward_range: [0.001, 0.999]
     grader:
-      endpoint: "/state/{session_id}"
-      score_field: "grader_score"
+      endpoint: "/grade/{session_id}"
+      score_key: "score"
 
 agent:
   inference_entrypoint: "inference.py"

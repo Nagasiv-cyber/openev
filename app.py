@@ -276,6 +276,34 @@ async def state(session_id: str):
     }
 
 
+@app.get("/grade/{session_id}")
+async def grade(session_id: str):
+    """
+    Grade endpoint — returns a single score strictly in (0, 1).
+    
+    OpenEnv validator calls this after each episode to get the task score.
+    Score is ALWAYS strictly between 0 and 1 (never 0.0, never 1.0).
+    """
+    if session_id not in environments:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    env = environments[session_id]
+    state = env.state
+    
+    # grader_score is already clamped to [0.001, 0.999] by environment
+    raw_score = state.grader_score
+    
+    # Extra safety clamp — validator requires strictly (0, 1) exclusive
+    score = max(0.001, min(0.999, float(raw_score) if raw_score is not None else 0.5))
+    
+    return {
+        "score": score,
+        "task_id": state.task_id,
+        "episode_id": state.episode_id,
+        "step_count": state.step_count,
+    }
+
+
 @app.get("/docs")
 async def api_docs():
     """API documentation endpoint"""
