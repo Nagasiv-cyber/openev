@@ -118,14 +118,20 @@ _SCORE = {
     "near_perfect":    0.88,
     "partial_hard_hi": 0.87,
     "partial_hard_lo": 0.70,
-    "cautious":        0.50,   # rejected safe (overcautious, not "wrong" wrong)
+    "cautious":        0.50,   # rejected safe (overcautious, not wrong)
     "missed_bug":      0.30,
     "false_positive":  0.15,
     "approve_bug":     0.10,   # catastrophic
 }
 
+# Strict exclusive bounds — score must NEVER be exactly 0.0 or 1.0
 _SCORE_MIN = 0.001
 _SCORE_MAX = 0.999
+
+
+def _clamp(v: float) -> float:
+    """Clamp any float to strictly open (0, 1) interval."""
+    return max(_SCORE_MIN, min(_SCORE_MAX, float(v)))
 
 
 class CodeReviewEnvironment:
@@ -207,6 +213,7 @@ class CodeReviewEnvironment:
 
         snippet = self._current_snippet
         score, category = self._score_step(action, severity, comment, snippet)
+        score = _clamp(score)  # enforce strict (0,1) on every raw step score
 
         self._step_scores.append(score)
         self._step_categories.append(category)
@@ -292,9 +299,9 @@ class CodeReviewEnvironment:
 
     @property
     def grader_score(self) -> float:
-        """Compute final trajectory-adjusted score."""
+        """Compute final trajectory-adjusted score — always strictly in (0.001, 0.999)."""
         if not self._step_scores:
-            return 0.5
+            return 0.5  # mid-range fallback, never 0 or 1
 
         n = len(self._step_scores)
         mean = sum(self._step_scores) / n
@@ -302,8 +309,12 @@ class CodeReviewEnvironment:
         score = mean
         score = self._apply_grader_modifiers(score, n)
 
-        # Hard clamp to strictly open (0, 1)
-        return max(_SCORE_MIN, min(_SCORE_MAX, round(score, 4)))
+        # Triple-layer protection against 0.0 or 1.0:
+        #   1. round to 4dp to kill floating point noise
+        #   2. hard clamp using _SCORE_MIN / _SCORE_MAX
+        #   3. final type-safe max/min as safety net
+        score = round(score, 4)
+        return _clamp(score)
 
     def _apply_grader_modifiers(self, score: float, n: int) -> float:
         """Apply catastrophic penalties and bonuses based on task tier."""
