@@ -420,8 +420,12 @@ class TradingEnvironment:
     @property
     def state(self) -> TradingState:
         """Get episode state metadata"""
+        current_net_worth = self.cash + sum(
+            self.positions[p] * self.market_prices[p] for p in self.asset_pairs
+        )
         return TradingState(
             episode_id=self.episode_id,
+            task_id=self.task_id,
             step_count=self.time_step,
             elapsed_time=float(self.time_step),  # in minutes
             market_volatility=sum(self.volatilities.values()) / len(self.volatilities),
@@ -432,5 +436,5 @@ class TradingEnvironment:
             win_rate=self.winning_trades / max(1, self.trades_executed),
             total_arbitrage_found=self.arbitrage_opportunities_found,
             arbitrage_captured=self.arbitrage_captured,
-            grader_score=self._get_grader_score(self.cash + sum(self.positions[p] * self.market_prices[p] for p in self.asset_pairs)),
+            grader_score=self._get_grader_score(current_net_worth),
         )

@@ -261,6 +261,7 @@ async def state(session_id: str):
     
     return {
         "episode_id": state.episode_id,
+        "task_id": state.task_id,
         "step_count": state.step_count,
         "elapsed_time": state.elapsed_time,
         "market_volatility": state.market_volatility,
