@@ -14,34 +14,26 @@ tasks:
   - id: "survival"
     name: "Capital Survival"
     description: "Maintain a final net worth greater than the initial starting cash."
-    reward_range: [0.001, 0.999]
-    grader:
-      endpoint: "/grade/{session_id}"
-      score_key: "score"
+    reward_range: [0.0, 1.0]
+    grader: "/grade/{session_id}"
 
   - id: "arbitrage"
     name: "Arbitrage Hunter"
     description: "Detect and capture at least 5 simulated arbitrage opportunities."
-    reward_range: [0.001, 0.999]
-    grader:
-      endpoint: "/grade/{session_id}"
-      score_key: "score"
+    reward_range: [0.0, 1.0]
+    grader: "/grade/{session_id}"
 
   - id: "drawdown"
     name: "Drawdown Control"
     description: "Maintain maximum drawdown below 5% while remaining profitable."
-    reward_range: [0.001, 0.999]
-    grader:
-      endpoint: "/grade/{session_id}"
-      score_key: "score"
+    reward_range: [0.0, 1.0]
+    grader: "/grade/{session_id}"
 
   - id: "momentum"
     name: "Momentum Trading"
     description: "Execute profitable trades consistently to build a positive momentum score."
-    reward_range: [0.001, 0.999]
-    grader:
-      endpoint: "/grade/{session_id}"
-      score_key: "score"
+    reward_range: [0.0, 1.0]
+    grader: "/grade/{session_id}"
 
 agent:
   inference_entrypoint: "inference.py"
