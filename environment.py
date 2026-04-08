@@ -28,6 +28,10 @@ class TradingEnvironment:
     - Portfolio tracking with P&L calculation
     """
     
+    # Score bounds: strictly between 0 and 1 (excluded) per OpenEnv validator
+    _SCORE_MIN = 0.001
+    _SCORE_MAX = 0.999
+
     def __init__(self, initial_cash: float = 100000.0, num_assets: int = 3, task_id: str = "survival"):
         """
         Initialize the trading environment.
@@ -35,7 +39,7 @@ class TradingEnvironment:
         Args:
             initial_cash: Starting capital in USD
             num_assets: Number of tradeable assets
-            task_id: "survival", "arbitrage", or "drawdown"
+            task_id: "survival", "arbitrage", "drawdown", or "momentum"
         """
         self.initial_cash = initial_cash
         self.num_assets = num_assets
@@ -306,22 +310,49 @@ class TradingEnvironment:
         return reward
 
     def _get_grader_score(self, current_net_worth: float) -> float:
-        """Calculate score from 0.0 to 1.0 based on the current task"""
+        """
+        Calculate score strictly between 0 and 1 (exclusive) based on the current task.
+        OpenEnv validator requires: 0.0 < score < 1.0 (not 0.0, not 1.0).
+        """
+        raw = self._compute_raw_score(current_net_worth)
+        # Clamp strictly inside (0, 1) — never exactly 0.0 or 1.0
+        return max(self._SCORE_MIN, min(self._SCORE_MAX, raw))
+
+    def _compute_raw_score(self, current_net_worth: float) -> float:
+        """Compute unclamped score in [0, 1] range."""
         if self.task_id == "survival":
-            if current_net_worth >= self.initial_cash:
-                return 1.0
-            else:
-                loss_ratio = (self.initial_cash - current_net_worth) / self.initial_cash
-                return max(0.0, 1.0 - (loss_ratio * 2.0))
+            # Score based on how much capital was preserved / grown
+            ratio = current_net_worth / self.initial_cash  # e.g. 1.05 if up 5%
+            # Map: 0.5x -> ~0.1, 1.0x -> 0.5, 1.5x -> 0.9
+            score = ratio / (1.0 + ratio)
+            return score
+
         elif self.task_id == "arbitrage":
-            return min(self.arbitrage_captured / 5.0, 1.0)
+            # Score based on arbitrage opportunities captured (target: 5)
+            # Use a sigmoid-like curve so 0 captured != 0.0 and 5+ captured != 1.0
+            captured = max(0, self.arbitrage_captured)
+            score = captured / (captured + 5.0)  # never reaches 1.0; approaches 0 asymptotically
+            return score
+
         elif self.task_id == "drawdown":
-            if self.max_drawdown <= 0.05 and current_net_worth > self.initial_cash:
-                return 1.0
-            # penalize linear
-            score = 1.0 - (self.max_drawdown / 0.1)
-            return max(0.0, score)
-        return 0.0
+            # Score based on drawdown control (lower drawdown = higher score)
+            # max_drawdown=0 -> score near 0.9; max_drawdown=0.10 -> score near 0.1
+            score = 1.0 / (1.0 + self.max_drawdown * 20.0)
+            # Bonus if profitable
+            if current_net_worth > self.initial_cash:
+                score = score * 0.8 + 0.15  # boost into (0.15, 0.95) range
+            return score
+
+        elif self.task_id == "momentum":
+            # Score based on consecutive profitable steps
+            if not self.trade_history:
+                return 0.3
+            profitable = sum(1 for t in self.trade_history if t.get("proceeds", 0) > t.get("cost", 0))
+            ratio = profitable / max(1, len(self.trade_history))
+            return 0.1 + ratio * 0.8  # maps to (0.1, 0.9)
+
+        # Fallback: unknown task_id — return mid-range score
+        return 0.5
     
     def _get_observation(self) -> TradingObservation:
         """Generate current observation"""

@@ -25,6 +25,11 @@ tasks:
     description: "Maintain maximum drawdown below 5% while remaining profitable."
     reward_range: [0.0, 1.0]
 
+  - id: "momentum"
+    name: "Momentum Trading"
+    description: "Execute profitable trades consistently to build a positive momentum score."
+    reward_range: [0.0, 1.0]
+
 agent:
   inference_entrypoint: "inference.py"
   requirements: "requirements.txt"
