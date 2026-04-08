@@ -1,432 +1,362 @@
 """
-Core Trading Environment Implementation
-Simulates realistic market conditions and detects arbitrage opportunities
+Code Review Environment — OpenEnv compliant
+Each episode presents 5 code snippets. The agent reviews each one:
+  - APPROVE or REJECT
+  - Assign severity (optional but rewarded)
+  - Add a comment (optional but rewarded)
+
+Scoring (per step):
+  0.90  Perfect: correct action + correct severity + includes comment
+  0.88  Near-perfect: correct action on easy/medium, missed severity
+  0.70–0.87  Partial: correct action on hard, incomplete explanation/severity
+  0.50  Cautious false negative: rejected safe code
+  0.30  Missed bug: ignored a real vulnerability
+  0.15  False positive: flagged safe code as vulnerable
+  0.10  Catastrophic: approved a vulnerable snippet
+
+Trajectory grader modifiers (applied after averaging):
+  approve_bug_penalty: -0.40 (easy) / -0.50 (medium) / -0.60 (hard)
+  consistency_bonus:   +0.05 (easy) / +0.10 (medium) / +0.15 (hard)  if ≥80% correct
+  explanation_bonus:   +0.03 (easy) / +0.07 (medium) / +0.10 (hard)  if ≥80% perfect
 """
 
+import uuid
 import random
-import math
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
-from collections import defaultdict
+from typing import List, Optional, Dict, Any
 
 from models import (
-    TradingAction, TradeAction, MarketSnapshot, PortfolioState,
-    TradingObservation, TradingState
+    ReviewAction, SeverityLevel, CodeSnippet,
+    ReviewObservation, ReviewState,
 )
 
+# ── Snippet Library ────────────────────────────────────────────────────────────
+# Each entry: (language, code, is_vulnerable, vuln_type, correct_severity, difficulty)
 
-class TradingEnvironment:
-    """
-    Realistic market simulator with arbitrage detection.
-    
-    Features:
-    - Multi-asset trading (spot market simulation)
-    - Realistic price movements (geometric Brownian motion)
-    - Bid-ask spreads that vary by volatility
-    - Transaction costs
-    - Arbitrage opportunities (cross-exchange price mismatches)
-    - Portfolio tracking with P&L calculation
-    """
-    
-    # Score bounds: strictly between 0 and 1 (excluded) per OpenEnv validator
-    _SCORE_MIN = 0.001
-    _SCORE_MAX = 0.999
+_SNIPPETS: List[tuple] = [
+    # ── EASY vulnerable ──────────────────────────────────────────────────────
+    ("python",
+     'query = "SELECT * FROM users WHERE id = " + user_id\ncursor.execute(query)',
+     True, "SQL_INJECTION", SeverityLevel.CRITICAL, "easy"),
 
-    def __init__(self, initial_cash: float = 100000.0, num_assets: int = 3, task_id: str = "easy"):
+    ("javascript",
+     'document.getElementById("output").innerHTML = userInput;',
+     True, "XSS", SeverityLevel.HIGH, "easy"),
+
+    ("python",
+     'import pickle\ndata = pickle.loads(user_supplied_bytes)',
+     True, "INSECURE_DESERIALIZATION", SeverityLevel.HIGH, "easy"),
+
+    ("python",
+     'password = "admin123"\nif user_password == password:\n    grant_access()',
+     True, "HARDCODED_CREDENTIALS", SeverityLevel.CRITICAL, "easy"),
+
+    # ── EASY safe ────────────────────────────────────────────────────────────
+    ("python",
+     'cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))',
+     False, None, None, "easy"),
+
+    ("javascript",
+     'const output = document.createTextNode(userInput);\ndiv.appendChild(output);',
+     False, None, None, "easy"),
+
+    ("python",
+     'import hashlib\nhashed = hashlib.sha256(password.encode()).hexdigest()',
+     False, None, None, "easy"),
+
+    # ── MEDIUM vulnerable ─────────────────────────────────────────────────────
+    ("python",
+     'def get_file(path):\n    base = "/var/www/"\n    return open(base + path).read()',
+     True, "PATH_TRAVERSAL", SeverityLevel.HIGH, "medium"),
+
+    ("javascript",
+     'eval(req.query.cmd);',
+     True, "CODE_INJECTION", SeverityLevel.CRITICAL, "medium"),
+
+    ("python",
+     'import subprocess\nsubprocess.run(user_cmd, shell=True)',
+     True, "COMMAND_INJECTION", SeverityLevel.CRITICAL, "medium"),
+
+    ("python",
+     'SERVER_KEY = "sk-prod-xxxxxxxxxxxxxxxxxxxxxxxx"\nrequests.get(api_url, headers={"Authorization": SERVER_KEY})',
+     True, "HARDCODED_CREDENTIALS", SeverityLevel.HIGH, "medium"),
+
+    # ── MEDIUM safe ───────────────────────────────────────────────────────────
+    ("python",
+     'import os\npath = os.path.realpath(os.path.join(base, user_path))\nif path.startswith(base):\n    return open(path).read()',
+     False, None, None, "medium"),
+
+    ("python",
+     'subprocess.run(["ls", "-la", shlex.quote(user_dir)], shell=False)',
+     False, None, None, "medium"),
+
+    # ── HARD vulnerable ───────────────────────────────────────────────────────
+    ("python",
+     'import yaml\ndata = yaml.load(user_input)  # no Loader specified',
+     True, "UNSAFE_DESERIALIZATION", SeverityLevel.HIGH, "hard"),
+
+    ("python",
+     'def check_time():\n    token_time = jwt_payload["exp"]\n    if time.time() < token_time:\n        return True  # No constant-time comparison',
+     True, "TIMING_ATTACK", SeverityLevel.MEDIUM, "hard"),
+
+    ("javascript",
+     'const url = new URL(req.query.redirect);\nif (url.hostname === "myapp.com") res.redirect(req.query.redirect);',
+     True, "OPEN_REDIRECT", SeverityLevel.MEDIUM, "hard"),
+
+    # ── HARD safe ─────────────────────────────────────────────────────────────
+    ("python",
+     'import yaml\ndata = yaml.safe_load(user_input)',
+     False, None, None, "hard"),
+
+    ("python",
+     'import hmac\nif hmac.compare_digest(token_a, token_b):\n    return True',
+     False, None, None, "hard"),
+]
+
+# ── Score constants ────────────────────────────────────────────────────────────
+_SCORE = {
+    "perfect":         0.90,
+    "near_perfect":    0.88,
+    "partial_hard_hi": 0.87,
+    "partial_hard_lo": 0.70,
+    "cautious":        0.50,   # rejected safe (overcautious, not "wrong" wrong)
+    "missed_bug":      0.30,
+    "false_positive":  0.15,
+    "approve_bug":     0.10,   # catastrophic
+}
+
+_SCORE_MIN = 0.001
+_SCORE_MAX = 0.999
+
+
+class CodeReviewEnvironment:
+    """
+    OpenEnv-compliant code review environment.
+    Each episode = 5 review steps drawn from the snippet library.
+    """
+
+    STEPS_PER_EPISODE = 5
+
+    def __init__(self, task_id: str = "easy"):
         """
-        Initialize the trading environment.
-        
         Args:
-            initial_cash: Starting capital in USD
-            num_assets: Number of tradeable assets
             task_id: "easy", "medium", or "hard"
         """
-        self.initial_cash = initial_cash
-        self.num_assets = num_assets
         self.task_id = task_id
-        
-        # Asset pairs to trade
-        self.asset_pairs = [
-            "BTC/USD", "ETH/USD", "SOL/USD", "AAPL/USD", "GOLD/USD"
-        ][:num_assets]
-        
-        # Market state
-        self.current_time = datetime.now()
-        self.time_step = 0
-        self.market_prices: Dict[str, float] = {}
-        self.price_history: Dict[str, List[float]] = defaultdict(list)
-        self.volatilities: Dict[str, float] = {}
-        
-        # Initialize prices
-        self._initialize_prices()
-        
-        # Portfolio state
-        self.cash = initial_cash
-        self.positions: Dict[str, float] = {pair: 0.0 for pair in self.asset_pairs}
-        self.trade_history: List[Dict] = []
-        
-        # Episode tracking
         self.episode_id = ""
-        self.episode_start_net_worth = initial_cash
-        self.max_net_worth = initial_cash
-        self.max_drawdown = 0.0
-        self.trades_executed = 0
-        self.winning_trades = 0
-        
-        # Arbitrage tracking
-        self.arbitrage_opportunities_found = 0
-        self.arbitrage_captured = 0
-        
-        # Market regime (affects volatility and momentum)
-        self.market_regime = "normal"
-        self.regime_change_probability = 0.05
-    
-    def _initialize_prices(self):
-        """Initialize realistic starting prices"""
-        base_prices = {
-            "BTC/USD": 45000.0,
-            "ETH/USD": 2500.0,
-            "SOL/USD": 120.0,
-            "AAPL/USD": 180.0,
-            "GOLD/USD": 2000.0,
-        }
-        
-        for pair in self.asset_pairs:
-            self.market_prices[pair] = base_prices[pair]
-            self.price_history[pair] = [base_prices[pair]]
-            # Volatility as annual %, varies by asset
-            base_vol = {"BTC/USD": 0.8, "ETH/USD": 1.0, "SOL/USD": 1.2,
-                       "AAPL/USD": 0.3, "GOLD/USD": 0.2}
-            self.volatilities[pair] = base_vol.get(pair, 0.5)
-    
-    def reset(self) -> TradingObservation:
-        """
-        Reset the environment for a new episode.
-        
-        Returns:
-            Initial observation
-        """
-        self.episode_id = f"episode_{datetime.now().timestamp():.0f}"
-        self.time_step = 0
-        self.current_time = datetime.now()
-        
-        # Reset portfolio
-        self.cash = self.initial_cash
-        self.positions = {pair: 0.0 for pair in self.asset_pairs}
-        self.trade_history = []
-        
-        # Reset tracking
-        self.episode_start_net_worth = self.initial_cash
-        self.max_net_worth = self.initial_cash
-        self.max_drawdown = 0.0
-        self.trades_executed = 0
-        self.winning_trades = 0
-        self.arbitrage_opportunities_found = 0
-        self.arbitrage_captured = 0
-        
-        # Re-initialize prices
-        self._initialize_prices()
-        self.market_regime = "normal"
-        
-        return self._get_observation()
-    
-    def step(self, action: TradingAction) -> TradingObservation:
-        """
-        Execute one trading step.
-        
-        Args:
-            action: Trading action to execute
-            
-        Returns:
-            Observation after action
-        """
-        self.time_step += 1
-        self.current_time += timedelta(minutes=1)  # 1-minute candles
-        
-        # Update market prices (geometric Brownian motion)
-        self._update_market_prices()
-        
-        # Detect arbitrage opportunities before execution
-        arb_opps = self._detect_arbitrage()
-        
-        # Execute the action
-        reward = self._execute_action(action, arb_opps)
-        
-        # Check episode termination
-        done = self.time_step >= 1000  # Max 1000 steps per episode
-        
-        obs = self._get_observation()
-        obs.reward = reward
-        obs.done = done
-        obs.arbitrage_opportunities = arb_opps
-        
-        return obs
-    
-    def _update_market_prices(self):
-        """Update prices using geometric Brownian motion"""
-        # Occasionally change market regime (affects volatility)
-        if random.random() < self.regime_change_probability:
-            regimes = ["normal", "high_volatility", "low_volatility"]
-            self.market_regime = random.choice(regimes)
-        
-        # Regime multipliers
-        regime_mult = {
-            "normal": 1.0,
-            "high_volatility": 2.0,
-            "low_volatility": 0.5
-        }[self.market_regime]
-        
-        for pair in self.asset_pairs:
-            current_price = self.market_prices[pair]
-            
-            # Drift and volatility
-            drift = 0.0001  # Small positive drift
-            vol = self.volatilities[pair] * regime_mult / math.sqrt(252 * 24 * 60)  # Convert to 1-min volatility
-            
-            # Random shock
-            shock = random.gauss(0, vol)
-            
-            # Update price
-            new_price = current_price * math.exp(drift + shock)
-            self.market_prices[pair] = new_price
-            self.price_history[pair].append(new_price)
-    
-    def _detect_arbitrage(self) -> List[Dict]:
-        """
-        Detect potential arbitrage opportunities.
-        
-        In reality, arbitrage would be across exchanges.
-        Here we simulate it via simulated "exchange rates" that deviate from fair value.
-        
-        Returns:
-            List of detected arbitrage opportunities
-        """
-        opportunities = []
-        
-        # Simulate cross-exchange price mismatches
-        for pair in self.asset_pairs:
-            fair_price = self.market_prices[pair]
-            
-            # Exchange A (slightly overpriced)
-            exchange_a_price = fair_price * (1 + random.uniform(0.0, 0.002))
-            
-            # Exchange B (slightly underpriced)
-            exchange_b_price = fair_price * (1 - random.uniform(0.0, 0.002))
-            
-            # Arbitrage spread
-            spread = exchange_a_price - exchange_b_price
-            spread_pct = (spread / fair_price) * 100  # as percentage
-            
-            # Consider it an opportunity if spread > 0.1%
-            if spread_pct > 0.1:
-                self.arbitrage_opportunities_found += 1
-                opportunities.append({
-                    "asset_pair": pair,
-                    "buy_exchange": "B",
-                    "buy_price": exchange_b_price,
-                    "sell_exchange": "A",
-                    "sell_price": exchange_a_price,
-                    "profit_per_unit": spread,
-                    "spread_percent": spread_pct,
-                })
-        
-        return opportunities
-    
-    def _execute_action(self, action: TradingAction, arb_opps: List[Dict]) -> float:
-        """
-        Execute a trading action and calculate reward.
-        
-        Reward signals:
-        - Profit from closing positions
-        - Bonus for capturing arbitrage
-        - Penalty for transaction costs
-        
-        Returns:
-            Immediate reward
-        """
-        reward = 0.0
-        
-        if action.action == TradeAction.HOLD:
-            reward = 0.0
-        
-        elif action.action == TradeAction.BUY:
-            price = self.market_prices[action.asset_pair]
-            transaction_cost = price * action.quantity * 0.001  # 0.1% transaction cost
-            
-            total_cost = price * action.quantity + transaction_cost
-            
-            if total_cost <= self.cash:
-                self.cash -= total_cost
-                self.positions[action.asset_pair] += action.quantity
-                self.trades_executed += 1
-                
-                self.trade_history.append({
-                    "time": self.time_step,
-                    "type": "BUY",
-                    "pair": action.asset_pair,
-                    "quantity": action.quantity,
-                    "price": price,
-                    "cost": total_cost
-                })
-                
-                reward = -0.01  # Small cost to encourage selective trading
-            else:
-                reward = -0.05  # Penalty for insufficient funds
-        
-        elif action.action == TradeAction.SELL:
-            if action.asset_pair in self.positions and self.positions[action.asset_pair] > 0:
-                price = self.market_prices[action.asset_pair]
-                quantity = min(action.quantity, self.positions[action.asset_pair])
-                
-                proceeds = price * quantity
-                transaction_cost = proceeds * 0.001  # 0.1% transaction cost
-                net_proceeds = proceeds - transaction_cost
-                
-                self.cash += net_proceeds
-                self.positions[action.asset_pair] -= quantity
-                self.trades_executed += 1
-                
-                # Reward based on position P&L
-                # (This is simplified - actual P&L tracking would need entry price)
-                reward = 0.01  # Small reward for executing
-                
-                self.trade_history.append({
-                    "time": self.time_step,
-                    "type": "SELL",
-                    "pair": action.asset_pair,
-                    "quantity": quantity,
-                    "price": price,
-                    "proceeds": net_proceeds
-                })
-        
-        # Bonus for capturing arbitrage opportunities
-        if arb_opps:
-            for opp in arb_opps:
-                if (action.asset_pair == opp["asset_pair"] and 
-                    action.action in [TradeAction.BUY, TradeAction.SELL]):
-                    reward += 0.1 * (opp["spread_percent"] / 100)  # Bonus proportional to spread
-                    self.arbitrage_captured += 1
-        
-        return reward
+        self.step_count = 0
+        self._snippets: List[CodeSnippet] = []
+        self._step_scores: List[float] = []
+        self._step_categories: List[str] = []   # track score type per step
+        self._current_snippet: Optional[CodeSnippet] = None
 
-    def _get_grader_score(self, current_net_worth: float) -> float:
-        """
-        Calculate score strictly between 0 and 1 (exclusive) based on the current task.
-        OpenEnv validator requires: 0.0 < score < 1.0 (not 0.0, not 1.0).
-        """
-        raw = self._compute_raw_score(current_net_worth)
-        # Clamp strictly inside (0, 1) — never exactly 0.0 or 1.0
-        return max(self._SCORE_MIN, min(self._SCORE_MAX, raw))
+        # Trajectory counters
+        self.approve_bug_count = 0
+        self.false_positive_count = 0
+        self.missed_bug_count = 0
+        self.correct_count = 0
+        self.perfect_count = 0
 
-    def _compute_raw_score(self, current_net_worth: float) -> float:
-        """Compute unclamped score in [0, 1] range."""
-        if self.task_id == "easy":
-            # Score based on how much capital was preserved / grown
-            ratio = current_net_worth / self.initial_cash  # e.g. 1.05 if up 5%
-            # Map: 0.5x -> ~0.1, 1.0x -> 0.5, 1.5x -> 0.9
-            score = ratio / (1.0 + ratio)
-            return score
+    # ── Public API ─────────────────────────────────────────────────────────────
 
-        elif self.task_id == "medium":
-            # Score based on arbitrage opportunities captured (target: 5)
-            # Use a sigmoid-like curve so 0 captured != 0.0 and 5+ captured != 1.0
-            captured = max(0, self.arbitrage_captured)
-            score = captured / (captured + 5.0)  # never reaches 1.0; approaches 0 asymptotically
-            return score
+    def reset(self) -> ReviewObservation:
+        """Start a new episode. Returns first snippet."""
+        self.episode_id = str(uuid.uuid4())[:8]
+        self.step_count = 0
+        self._step_scores = []
+        self._step_categories = []
+        self.approve_bug_count = 0
+        self.false_positive_count = 0
+        self.missed_bug_count = 0
+        self.correct_count = 0
+        self.perfect_count = 0
 
-        elif self.task_id == "hard":
-            # Score based on drawdown control (lower drawdown = higher score)
-            # max_drawdown=0 -> score near 0.9; max_drawdown=0.10 -> score near 0.1
-            score = 1.0 / (1.0 + self.max_drawdown * 20.0)
-            # Bonus if profitable
-            if current_net_worth > self.initial_cash:
-                score = score * 0.8 + 0.15  # boost into (0.15, 0.95) range
-            return score
+        # Sample 5 snippets appropriate for this task_id
+        pool = [s for s in _SNIPPETS if s[5] == self.task_id]
+        if len(pool) < self.STEPS_PER_EPISODE:
+            pool = _SNIPPETS  # fallback to entire pool
 
-        # Fallback: unknown task_id — return mid-range score
-        return 0.5
-    
-    def _get_observation(self) -> TradingObservation:
-        """Generate current observation"""
-        # Calculate market snapshots
-        market_snapshots = []
-        for pair in self.asset_pairs:
-            price = self.market_prices[pair]
-            spread = price * 0.0005  # 0.05% spread
-            
-            snapshot = MarketSnapshot(
-                timestamp=self.time_step,
-                asset_pair=pair,
-                bid_price=price - spread / 2,
-                ask_price=price + spread / 2,
-                bid_volume=random.uniform(100, 1000),
-                ask_volume=random.uniform(100, 1000),
+        chosen = random.sample(pool, min(self.STEPS_PER_EPISODE, len(pool)))
+        self._snippets = [
+            CodeSnippet(
+                snippet_id=f"{self.episode_id}_step{i}",
+                language=s[0],
+                code=s[1],
+                is_vulnerable=s[2],
+                vulnerability_type=s[3],
+                correct_severity=s[4],
+                difficulty=s[5],
             )
-            market_snapshots.append(snapshot)
-        
-        # Calculate portfolio state and P&L
-        current_net_worth = self.cash
-        for pair in self.asset_pairs:
-            position_value = self.positions[pair] * self.market_prices[pair]
-            current_net_worth += position_value
-        
-        pnl = current_net_worth - self.episode_start_net_worth
-        pnl_percent = (pnl / self.episode_start_net_worth) * 100
-        
-        # Update max drawdown
-        if current_net_worth > self.max_net_worth:
-            self.max_net_worth = current_net_worth
+            for i, s in enumerate(chosen)
+        ]
+
+        self._current_snippet = self._snippets[0]
+        return self._build_obs(done=False)
+
+    def step(self, action: str, severity: Optional[str] = None,
+             comment: Optional[str] = None) -> ReviewObservation:
+        """
+        Process one review decision.
+
+        Args:
+            action:   "APPROVE" or "REJECT"
+            severity: Optional severity string, e.g. "HIGH"
+            comment:  Optional explanation string
+        """
+        if self._current_snippet is None:
+            raise RuntimeError("Call reset() before step()")
+
+        snippet = self._current_snippet
+        score, category = self._score_step(action, severity, comment, snippet)
+
+        self._step_scores.append(score)
+        self._step_categories.append(category)
+        self.step_count += 1
+
+        # Update trajectory counters
+        if category == "approve_bug":
+            self.approve_bug_count += 1
+        elif category == "false_positive":
+            self.false_positive_count += 1
+        elif category == "missed_bug":
+            self.missed_bug_count += 1
+        elif category in ("perfect", "near_perfect", "partial_hard"):
+            self.correct_count += 1
+            if category == "perfect":
+                self.perfect_count += 1
+        elif category == "cautious":
+            self.correct_count += 1  # not wrong, counts as "not incorrect"
+
+        done = self.step_count >= self.STEPS_PER_EPISODE
+
+        if not done and self.step_count < len(self._snippets):
+            self._current_snippet = self._snippets[self.step_count]
         else:
-            drawdown = (self.max_net_worth - current_net_worth) / self.max_net_worth
-            self.max_drawdown = max(self.max_drawdown, drawdown)
-        
-        portfolio = PortfolioState(
-            cash=self.cash,
-            positions=self.positions.copy(),
-        )
-        
-        # Calculate market trend
-        if len(self.price_history[self.asset_pairs[0]]) > 20:
-            recent_prices = self.price_history[self.asset_pairs[0]][-20:]
-            if recent_prices[-1] > recent_prices[0]:
-                trend = "bullish"
+            self._current_snippet = None
+
+        return self._build_obs(done=done, reward=score,
+                               grader_score=self.grader_score if done else None)
+
+    # ── Scoring ────────────────────────────────────────────────────────────────
+
+    def _score_step(self, action: str, severity: Optional[str],
+                    comment: Optional[str], snippet: CodeSnippet) -> tuple:
+        """Returns (raw_score, category_name)."""
+        is_reject = action.upper() == "REJECT"
+        is_approve = action.upper() == "APPROVE"
+        has_comment = bool(comment and len(comment.strip()) > 5)
+
+        # Severity match
+        sev_correct = False
+        if severity and snippet.correct_severity:
+            sev_correct = severity.upper() == snippet.correct_severity.value
+
+        if snippet.is_vulnerable:
+            if is_approve:
+                # Catastrophic: shipped a bug
+                return (_SCORE["approve_bug"], "approve_bug")
+
+            # REJECT on a vulnerable snippet — how well?
+            if snippet.difficulty == "easy":
+                if sev_correct and has_comment:
+                    return (_SCORE["perfect"], "perfect")
+                else:
+                    return (_SCORE["near_perfect"], "near_perfect")
+            elif snippet.difficulty == "medium":
+                if sev_correct and has_comment:
+                    return (_SCORE["perfect"], "perfect")
+                else:
+                    return (_SCORE["near_perfect"], "near_perfect")
+            else:  # hard
+                if sev_correct and has_comment:
+                    return (_SCORE["partial_hard_hi"], "partial_hard")
+                elif sev_correct or has_comment:
+                    return (round(random.uniform(0.75, 0.83), 2), "partial_hard")
+                else:
+                    return (_SCORE["partial_hard_lo"], "partial_hard")
+
+        else:  # safe code
+            if is_reject:
+                # False positive or cautious
+                if snippet.difficulty == "easy":
+                    return (_SCORE["false_positive"], "false_positive")
+                else:
+                    return (_SCORE["cautious"], "cautious")
             else:
-                trend = "bearish"
-        else:
-            trend = "sideways"
-        
-        return TradingObservation(
-            market_snapshots=market_snapshots,
-            portfolio=portfolio,
-            net_worth=current_net_worth,
-            pnl=pnl,
-            pnl_percent=pnl_percent,
-            done=False,
-            grader_score=self._get_grader_score(current_net_worth),
-            metadata={
-                "market_regime": self.market_regime,
-                "trend": trend,
-            }
-        )
-    
+                # Correctly approved safe code
+                if has_comment:
+                    return (_SCORE["perfect"], "perfect")
+                else:
+                    return (_SCORE["near_perfect"], "near_perfect")
+
+    # ── Trajectory Grader ─────────────────────────────────────────────────────
+
     @property
-    def state(self) -> TradingState:
-        """Get episode state metadata"""
-        current_net_worth = self.cash + sum(
-            self.positions[p] * self.market_prices[p] for p in self.asset_pairs
-        )
-        return TradingState(
+    def grader_score(self) -> float:
+        """Compute final trajectory-adjusted score."""
+        if not self._step_scores:
+            return 0.5
+
+        n = len(self._step_scores)
+        mean = sum(self._step_scores) / n
+
+        score = mean
+        score = self._apply_grader_modifiers(score, n)
+
+        # Hard clamp to strictly open (0, 1)
+        return max(_SCORE_MIN, min(_SCORE_MAX, round(score, 4)))
+
+    def _apply_grader_modifiers(self, score: float, n: int) -> float:
+        """Apply catastrophic penalties and bonuses based on task tier."""
+        tid = self.task_id
+
+        # Penalty tiers
+        penalty_per_bug = {"easy": 0.40, "medium": 0.50, "hard": 0.60}[tid]
+        consistency_bonus = {"easy": 0.05, "medium": 0.10, "hard": 0.15}[tid]
+        explanation_bonus = {"easy": 0.03, "medium": 0.07, "hard": 0.10}[tid]
+
+        # Catastrophic penalty
+        if self.approve_bug_count > 0:
+            score -= penalty_per_bug * self.approve_bug_count
+
+        # Consistency bonus (≥ 80% steps not catastrophically wrong)
+        correct_rate = self.correct_count / max(1, n)
+        if correct_rate >= 0.80:
+            score += consistency_bonus
+
+        # Explanation bonus (≥ 80% perfect)
+        perfect_rate = self.perfect_count / max(1, n)
+        if perfect_rate >= 0.80:
+            score += explanation_bonus
+
+        return score
+
+    # ── State ─────────────────────────────────────────────────────────────────
+
+    @property
+    def state(self) -> ReviewState:
+        return ReviewState(
             episode_id=self.episode_id,
             task_id=self.task_id,
-            step_count=self.time_step,
-            elapsed_time=float(self.time_step),  # in minutes
-            market_volatility=sum(self.volatilities.values()) / len(self.volatilities),
-            trend="bullish" if self.time_step % 100 < 50 else "bearish",
-            max_drawdown=self.max_drawdown,
-            cumulative_pnl=sum(t.get("proceeds", 0) for t in self.trade_history),
-            num_trades=self.trades_executed,
-            win_rate=self.winning_trades / max(1, self.trades_executed),
-            total_arbitrage_found=self.arbitrage_opportunities_found,
-            arbitrage_captured=self.arbitrage_captured,
-            grader_score=self._get_grader_score(current_net_worth),
+            step_count=self.step_count,
+            elapsed_time=float(self.step_count),
+            step_scores=list(self._step_scores),
+            approve_bug_count=self.approve_bug_count,
+            false_positive_count=self.false_positive_count,
+            missed_bug_count=self.missed_bug_count,
+            correct_count=self.correct_count,
+            perfect_count=self.perfect_count,
+            grader_score=self.grader_score,
+        )
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _build_obs(self, done: bool, reward: Optional[float] = None,
+                   grader_score: Optional[float] = None) -> ReviewObservation:
+        return ReviewObservation(
+            snippet=self._current_snippet or (self._snippets[-1] if self._snippets else None),
+            step=self.step_count,
+            episode_id=self.episode_id,
+            done=done,
+            reward=reward,
+            grader_score=grader_score,
         )

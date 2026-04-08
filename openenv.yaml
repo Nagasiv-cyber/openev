@@ -1,6 +1,6 @@
-name: ArbitrageTradingEnv
-version: "1.0.0"
-description: "Realistic multi-market trading environment for arbitrage detection and portfolio optimization."
+name: CodeReviewEnv
+version: "2.0.0"
+description: "AI-powered code vulnerability detection benchmark. Agents review code snippets and must correctly APPROVE safe code or REJECT vulnerable code, with correct severity and explanation."
 
 environment:
   dockerfile: "Dockerfile"
@@ -12,20 +12,20 @@ environment:
 
 tasks:
   - id: "easy"
-    name: "Capital Survival (Easy)"
-    description: "Maintain a final net worth greater than the initial starting cash."
+    name: "Beginner Security Review"
+    description: "Review code snippets for obvious vulnerabilities like SQL injection and XSS. Snippet difficulty is low."
     reward_range: [0.0, 1.0]
     grader: "/grade/{session_id}"
 
   - id: "medium"
-    name: "Arbitrage Hunter (Medium)"
-    description: "Detect and capture at least 5 simulated arbitrage opportunities."
+    name: "Intermediate Security Review"
+    description: "Review code snippets for moderate vulnerabilities like path traversal and command injection."
     reward_range: [0.0, 1.0]
     grader: "/grade/{session_id}"
 
   - id: "hard"
-    name: "Drawdown Control (Hard)"
-    description: "Maintain maximum drawdown below 5% while remaining profitable."
+    name: "Advanced Security Review"
+    description: "Review code snippets for subtle vulnerabilities like timing attacks and open redirects."
     reward_range: [0.0, 1.0]
     grader: "/grade/{session_id}"
 
