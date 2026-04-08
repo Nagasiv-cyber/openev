@@ -194,7 +194,7 @@ async def health():
 
 
 @app.post("/reset")
-async def reset(task_id: str = "survival"):
+async def reset(task_id: str = "easy"):
     """
     Reset environment endpoint.
     

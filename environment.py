@@ -32,14 +32,14 @@ class TradingEnvironment:
     _SCORE_MIN = 0.001
     _SCORE_MAX = 0.999
 
-    def __init__(self, initial_cash: float = 100000.0, num_assets: int = 3, task_id: str = "survival"):
+    def __init__(self, initial_cash: float = 100000.0, num_assets: int = 3, task_id: str = "easy"):
         """
         Initialize the trading environment.
         
         Args:
             initial_cash: Starting capital in USD
             num_assets: Number of tradeable assets
-            task_id: "survival", "arbitrage", "drawdown", or "momentum"
+            task_id: "easy", "medium", or "hard"
         """
         self.initial_cash = initial_cash
         self.num_assets = num_assets
@@ -320,21 +320,21 @@ class TradingEnvironment:
 
     def _compute_raw_score(self, current_net_worth: float) -> float:
         """Compute unclamped score in [0, 1] range."""
-        if self.task_id == "survival":
+        if self.task_id == "easy":
             # Score based on how much capital was preserved / grown
             ratio = current_net_worth / self.initial_cash  # e.g. 1.05 if up 5%
             # Map: 0.5x -> ~0.1, 1.0x -> 0.5, 1.5x -> 0.9
             score = ratio / (1.0 + ratio)
             return score
 
-        elif self.task_id == "arbitrage":
+        elif self.task_id == "medium":
             # Score based on arbitrage opportunities captured (target: 5)
             # Use a sigmoid-like curve so 0 captured != 0.0 and 5+ captured != 1.0
             captured = max(0, self.arbitrage_captured)
             score = captured / (captured + 5.0)  # never reaches 1.0; approaches 0 asymptotically
             return score
 
-        elif self.task_id == "drawdown":
+        elif self.task_id == "hard":
             # Score based on drawdown control (lower drawdown = higher score)
             # max_drawdown=0 -> score near 0.9; max_drawdown=0.10 -> score near 0.1
             score = 1.0 / (1.0 + self.max_drawdown * 20.0)
@@ -342,14 +342,6 @@ class TradingEnvironment:
             if current_net_worth > self.initial_cash:
                 score = score * 0.8 + 0.15  # boost into (0.15, 0.95) range
             return score
-
-        elif self.task_id == "momentum":
-            # Score based on consecutive profitable steps
-            if not self.trade_history:
-                return 0.3
-            profitable = sum(1 for t in self.trade_history if t.get("proceeds", 0) > t.get("cost", 0))
-            ratio = profitable / max(1, len(self.trade_history))
-            return 0.1 + ratio * 0.8  # maps to (0.1, 0.9)
 
         # Fallback: unknown task_id — return mid-range score
         return 0.5
