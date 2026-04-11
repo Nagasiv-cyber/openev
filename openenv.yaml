@@ -2,7 +2,7 @@ spec_version: "1.0"
 
 environment:
   name: "CyberGuard Code Review"
-  description: "An AI security code review environment where agents must detect vulnerabilities in code snippets across three difficulty tiers."
+  description: "An AI security code review environment where agents detect vulnerabilities in code snippets across three difficulty tiers."
   version: "2.0.0"
   dockerfile: "Dockerfile"
   endpoints:
@@ -13,21 +13,21 @@ environment:
 tasks:
   - id: easy
     name: "Beginner Security Review"
-    description: "Review code snippets for obvious vulnerabilities like SQL injection and XSS. Snippet difficulty is low."
+    description: "Review code snippets for obvious vulnerabilities like SQL injection and XSS."
     reward_range: [0.1, 0.99]
-    grader: "/grade/easy/{session_id}"
+    grader: "openev.server.grader:grade_easy"
 
   - id: medium
     name: "Intermediate Security Review"
     description: "Review code snippets for moderate vulnerabilities like path traversal and command injection."
     reward_range: [0.1, 0.99]
-    grader: "/grade/medium/{session_id}"
+    grader: "openev.server.grader:grade_medium"
 
   - id: hard
     name: "Advanced Security Review"
     description: "Review code snippets for subtle vulnerabilities like timing attacks and open redirects."
     reward_range: [0.1, 0.99]
-    grader: "/grade/hard/{session_id}"
+    grader: "openev.server.grader:grade_hard"
 
 agent:
   inference_entrypoint: "inference.py"

@@ -153,9 +153,11 @@ def _parse_review(text: str) -> dict:
 # ── Main inference loop ───────────────────────────────────────────────────────
 
 def run_inference(task_id: str = "easy"):
-    """Run a full code review episode against the environment."""
-    print("[START]")
-    print(f"[INFO] Task: {task_id}")
+    """Run a full code review episode against the environment for one task."""
+    # STDOUT Log Parsing Trap Fix:
+    # The cloud validator parses logs for EXACT matching task IDs.
+    print(f"[START] task={task_id}")
+    print(f"[INFO] Starting episode for task_id={task_id}")
 
     # Step 1: Reset environment
     reset_url = f"{ENV_BASE_URL}/reset?task_id={urllib.parse.quote(task_id)}"
@@ -223,11 +225,11 @@ def run_inference(task_id: str = "easy"):
             print(f"[STEP] Failed: {e}")
             break
 
-    # Step 3: Final grade
+    # Step 3: Final grade — use task-specific endpoint
     print(f"[LOOP] Completed {step_count} steps")
     try:
         final_state = _http_get(
-            f"{ENV_BASE_URL}/grade/{urllib.parse.quote(session_id)}"
+            f"{ENV_BASE_URL}/grade/{urllib.parse.quote(task_id)}/{urllib.parse.quote(session_id)}"
         )
     except Exception as e:
         final_state = {"error": str(e)}
@@ -236,4 +238,12 @@ def run_inference(task_id: str = "easy"):
 
 
 if __name__ == "__main__":
-    run_inference("easy")
+    # Run all 3 task tiers so the validator sees [START] task=easy/medium/hard
+    for difficulty in ["easy", "medium", "hard"]:
+        print(f"\n{'='*50}")
+        print(f"[RUN] Starting task: {difficulty}")
+        print(f"{'='*50}")
+        try:
+            run_inference(difficulty)
+        except Exception as e:
+            print(f"[ERROR] task={difficulty} failed: {e}")
