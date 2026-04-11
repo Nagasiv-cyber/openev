@@ -191,10 +191,24 @@ async def state(session_id: str):
 
 # ── Grade ─────────────────────────────────────────────────────────────────────
 
-@app.get("/grade/{session_id}")
-async def grade(session_id: str):
+@app.get("/grade/easy/{session_id}")
+async def easy_grader(session_id: str):
+    """OpenEnv easy grade endpoint."""
+    return await _process_grade(session_id, "easy")
+
+@app.get("/grade/medium/{session_id}")
+async def medium_grader(session_id: str):
+    """OpenEnv medium grade endpoint."""
+    return await _process_grade(session_id, "medium")
+
+@app.get("/grade/hard/{session_id}")
+async def hard_grader(session_id: str):
+    """OpenEnv hard grade endpoint."""
+    return await _process_grade(session_id, "hard")
+
+
+async def _process_grade(session_id: str, expected_task_id: str):
     """
-    OpenEnv grade endpoint.
     Returns a single score strictly in (0, 1).
     """
     if session_id not in environments:
@@ -225,7 +239,9 @@ async def docs_info():
             "/reset?task_id=easy": "POST — start new episode",
             "/step/{session_id}": "POST — submit review decision",
             "/state/{session_id}": "GET — full episode state",
-            "/grade/{session_id}": "GET — final grader score (0,1)",
+            "/grade/easy/{session_id}": "GET — final easy grader score (0, 1)",
+            "/grade/medium/{session_id}": "GET — final medium grader score (0, 1)",
+            "/grade/hard/{session_id}": "GET — final hard grader score (0, 1)",
         },
         "actions": ["APPROVE", "REJECT"],
         "severity_levels": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
