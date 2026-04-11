@@ -13,19 +13,19 @@ tasks:
   - id: "easy"
     name: "Beginner Security Review"
     description: "Review code snippets for obvious vulnerabilities like SQL injection and XSS. Snippet difficulty is low."
-    reward_range: [0.0, 1.0]
+    reward_range: [0, 1]
     grader: "/grade/easy/{session_id}"
 
   - id: "medium"
     name: "Intermediate Security Review"
     description: "Review code snippets for moderate vulnerabilities like path traversal and command injection."
-    reward_range: [0.0, 1.0]
+    reward_range: [0, 1]
     grader: "/grade/medium/{session_id}"
 
   - id: "hard"
     name: "Advanced Security Review"
     description: "Review code snippets for subtle vulnerabilities like timing attacks and open redirects."
-    reward_range: [0.0, 1.0]
+    reward_range: [0, 1]
     grader: "/grade/hard/{session_id}"
 
 agent:
