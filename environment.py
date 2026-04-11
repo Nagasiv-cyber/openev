@@ -125,8 +125,8 @@ _SCORE = {
 }
 
 # Strict exclusive bounds — score must NEVER be exactly 0.0 or 1.0
-_SCORE_MIN = 0.001
-_SCORE_MAX = 0.999
+_SCORE_MIN = 0.01
+_SCORE_MAX = 0.99
 
 
 def _clamp(v: float) -> float:
