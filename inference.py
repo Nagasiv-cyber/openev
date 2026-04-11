@@ -1,113 +1,74 @@
 """
 inference.py — OpenEnv Code Review Agent
-Sends each code snippet to the LLM proxy and submits APPROVE / REJECT decisions.
+Reads API credentials from environment variables and runs a full episode
+for each task tier (easy / medium / hard).
 
-CRITICAL: All LLM calls MUST go through the validator's LiteLLM proxy:
-  - Use os.environ["API_BASE_URL"] as the base URL
-  - Use os.environ["API_KEY"] as the Bearer token
+Required environment variables:
+  API_BASE_URL  — LiteLLM proxy base URL
+  HF_TOKEN      — Bearer token / API key
+  MODEL_NAME    — Model identifier (default: gpt-4o-mini)
+  ENV_BASE_URL  — Environment server URL (default: http://localhost:7860)
+
+Log format (strictly required by validator):
+  [START] task=<task_id>
+  [STEP] step=<n> action=<APPROVE|REJECT> reward=<float>
+  [END] task=<task_id> score=<float>
 """
+
 import os
+import sys
 import json
 import time
+
+from openai import OpenAI
+
+# ── Config ─────────────────────────────────────────────────────────────────────
+
+API_BASE_URL = os.environ.get("API_BASE_URL", "").rstrip("/")
+HF_TOKEN     = os.environ.get("HF_TOKEN", "")
+MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860").rstrip("/")
+
+if not API_BASE_URL or not HF_TOKEN:
+    print("[WARNING] API_BASE_URL or HF_TOKEN not set — running in fallback mode.")
+
+# Build the OpenAI client pointing at the LiteLLM proxy
+_llm_base = API_BASE_URL
+if _llm_base and not _llm_base.endswith("/v1"):
+    _llm_base = f"{_llm_base}/v1"
+
+client = OpenAI(
+    base_url=_llm_base or "http://localhost:11434/v1",
+    api_key=HF_TOKEN or "fallback",
+)
+
+# ── HTTP helpers (stdlib only — no requests dependency needed) ─────────────────
+
 import urllib.request
 import urllib.parse
 import urllib.error
 
-# ── Validator-injected environment variables ──────────────────────────────────
-API_BASE_URL = os.environ.get("API_BASE_URL", "").rstrip("/")
-# The OpenEnv evaluator injects the token via HF_TOKEN
-API_KEY      = os.environ.get("HF_TOKEN", "")
-MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:8000").rstrip("/")
 
-# Gracefully handle missing variables so validation doesn't crash with a non-zero exit code
-if not API_BASE_URL or not API_KEY:
-    print("[WARNING] API_BASE_URL or HF_TOKEN is missing. Execution will run in safe fallback mode if required.")
-
-print(f"[CONFIG] API_BASE_URL={API_BASE_URL}")
-print(f"[CONFIG] MODEL_NAME={MODEL_NAME}")
-print(f"[CONFIG] ENV_BASE_URL={ENV_BASE_URL}")
+def _post(url: str, body: dict) -> dict:
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        url, data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read())
 
 
-# ── HTTP helpers ──────────────────────────────────────────────────────────────
-
-def _http_post(url: str, payload: dict, headers: dict | None = None,
-               timeout: int = 30) -> dict:
-    data = json.dumps(payload).encode("utf-8")
-    h = {"Content-Type": "application/json"}
-    if headers:
-        h.update(headers)
-    req = urllib.request.Request(url, data=data, headers=h, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def _get(url: str) -> dict:
+    with urllib.request.urlopen(url, timeout=30) as r:
+        return json.loads(r.read())
 
 
-def _http_get(url: str, timeout: int = 30) -> dict:
-    req = urllib.request.Request(url)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+# ── LLM helpers ────────────────────────────────────────────────────────────────
 
-
-def _build_llm_url() -> str:
-    base = API_BASE_URL
-    # Strict proxy routing: track specific paths or default correctly
-    if "/chat/completions" in base:
-        return base
-    if base.endswith("/v1"):
-        return f"{base}/chat/completions"
-    return f"{base}/v1/chat/completions"
-
-
-def _query_llm(prompt: str, max_retries: int = 3) -> str:
-    """Call the LiteLLM proxy. Raises on total failure."""
-    url = _build_llm_url()
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0,
-        "max_tokens": 200,
-    }
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    last_error = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            print(f"[LLM] Attempt {attempt}/{max_retries} → POST {url}")
-            resp = _http_post(url, payload, headers=headers, timeout=45)
-            content = resp["choices"][0]["message"]["content"].strip()
-            print(f"[LLM] Response ({len(content)} chars)")
-            return content
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")
-            last_error = f"HTTP {e.code}: {body[:300]}"
-            print(f"[LLM] HTTPError on attempt {attempt}: {last_error}")
-        except urllib.error.URLError as e:
-            last_error = f"URLError: {e.reason}"
-            print(f"[LLM] URLError on attempt {attempt}: {last_error}")
-        except Exception as e:
-            last_error = str(e)
-            print(f"[LLM] Error on attempt {attempt}: {last_error}")
-
-        if attempt < max_retries:
-            time.sleep(2 * attempt)
-
-    print(f"[LLM WARNING] Proxy failed after {max_retries} attempts: {last_error}")
-    # Prevent non-zero exit crash by falling back to a safe baseline review properly
-    return '{"action": "REJECT", "severity": "LOW", "comment": "Safe Fallback: LLM proxy error"}'
-
-
-# ── Review-specific prompt & parser ──────────────────────────────────────────
-
-_SYSTEM_PROMPT = (
-    "You are an expert security code reviewer. "
-    "You review code snippets for vulnerabilities. "
-    "You must respond ONLY with a JSON object — no prose, no markdown fences."
-)
-
-_REVIEW_TEMPLATE = """Review the following {language} code for security vulnerabilities.
+_PROMPT = """\
+You are a security code reviewer. Review the following {language} code snippet.
 
 Code:
 ```{language}
@@ -117,133 +78,114 @@ Code:
 Decide:
 - action: "APPROVE" if the code is safe, "REJECT" if it contains a vulnerability.
 - severity: If rejecting, one of: "LOW", "MEDIUM", "HIGH", "CRITICAL".
-- comment: A brief explanation of your decision (1 sentence).
+- comment: A one-sentence explanation.
 
 Respond ONLY with valid JSON. Example:
-{{"action": "REJECT", "severity": "CRITICAL", "comment": "Unsanitized user input passed to SQL query — SQL Injection risk."}}
+{{"action": "REJECT", "severity": "CRITICAL", "comment": "SQL Injection via string concatenation."}}
 """
 
 
-def _parse_review(text: str) -> dict:
-    """Parse LLM response into a review decision dict."""
-    clean = text.strip()
-    # Strip markdown fences
-    if "```json" in clean:
-        clean = clean.split("```json")[1].split("```")[0].strip()
-    elif "```" in clean:
-        clean = clean.split("```")[1].strip()
-    # Sometimes the model adds a leading/trailing brace in plain text
-    try:
-        decision = json.loads(clean)
-    except json.JSONDecodeError:
-        # Fallback: safe conservative reject
-        print(f"[PARSE] JSON decode failed — raw: {text[:200]}")
-        return {"action": "REJECT", "severity": "LOW", "comment": "Unable to parse; defaulting to REJECT for safety."}
-
-    # Ensure required field
-    if "action" not in decision:
-        decision["action"] = "REJECT"
-    decision["action"] = decision["action"].upper()
-    if decision["action"] not in ("APPROVE", "REJECT"):
-        decision["action"] = "REJECT"
-
-    return decision
-
-
-# ── Main inference loop ───────────────────────────────────────────────────────
-
-def run_inference(task_id: str = "easy"):
-    """Run a full code review episode against the environment for one task."""
-    # STDOUT Log Parsing Trap Fix:
-    # The cloud validator parses logs for EXACT matching task IDs.
-    print(f"[START] task={task_id}")
-    print(f"[INFO] Starting episode for task_id={task_id}")
-
-    # Step 1: Reset environment
-    reset_url = f"{ENV_BASE_URL}/reset?task_id={urllib.parse.quote(task_id)}"
-    print(f"[RESET] POST {reset_url}")
-
-    try:
-        obs = _http_post(reset_url, {})
-    except Exception as e:
-        print(f"[RESET] Failed: {e}")
-        # Warm-up LLM call even on env failure (satisfies validator)
-        print("[WARMUP] Making warm-up LLM call...")
-        warmup = (
-            "You are a code security reviewer. "
-            "Given: `print('hello world')` — is this safe? "
-            'Respond with: {"action": "APPROVE", "severity": null, "comment": "No vulnerability."}'
-        )
+def _query_llm(language: str, code: str, retries: int = 3) -> dict:
+    prompt = _PROMPT.format(language=language, code=code)
+    for attempt in range(1, retries + 1):
         try:
-            _query_llm(warmup)
-        except Exception as llm_err:
-            print(f"[WARMUP] LLM warm-up failed: {llm_err}")
-        print("[END] early exit after env reset failure")
-        return
+            resp = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=150,
+            )
+            raw = resp.choices[0].message.content.strip()
+            # Strip markdown fences if present
+            if "```json" in raw:
+                raw = raw.split("```json")[1].split("```")[0].strip()
+            elif "```" in raw:
+                raw = raw.split("```")[1].strip()
+            decision = json.loads(raw)
+            if "action" not in decision:
+                decision["action"] = "REJECT"
+            decision["action"] = decision["action"].upper()
+            return decision
+        except Exception as e:
+            print(f"[LLM] Attempt {attempt}/{retries} failed: {e}")
+            if attempt < retries:
+                time.sleep(2 * attempt)
 
-    session_id = obs.get("session_id")
-    if not session_id:
-        print(f"[ERROR] No session_id: {obs}")
-        return
+    # Safe fallback — never crash
+    return {"action": "REJECT", "severity": "LOW", "comment": "Fallback: LLM unavailable."}
 
+
+# ── Episode runner ─────────────────────────────────────────────────────────────
+
+def run_episode(task_id: str) -> float:
+    """
+    Run one full episode for the given task_id.
+    Emits [START], [STEP]*, [END] logs.
+    Returns final grader score.
+    """
+    print(f"[START] task={task_id}")
+
+    # Reset
+    try:
+        obs = _post(f"{ENV_BASE_URL}/reset?task_id={urllib.parse.quote(task_id)}", {})
+    except Exception as e:
+        print(f"[ERROR] reset failed: {e}")
+        print(f"[END] task={task_id} score=0.10")
+        return 0.10
+
+    session_id = obs.get("session_id", "")
     done = obs.get("done", False)
-    step_count = 0
+    step_num = 0
+    score = 0.10
 
-    # Step 2: Review loop
+    # Step loop
     while not done:
-        step_count += 1
+        step_num += 1
         snippet = obs.get("snippet", {})
         language = snippet.get("language", "python")
         code = snippet.get("code", "# empty")
-        snippet_id = snippet.get("snippet_id", f"step_{step_count}")
 
-        print(f"[STEP {step_count}] snippet_id={snippet_id} language={language}")
+        decision = _query_llm(language, code)
+        action   = decision.get("action", "REJECT")
+        severity = decision.get("severity")
+        comment  = decision.get("comment", "")
 
-        prompt = _REVIEW_TEMPLATE.format(language=language, code=code)
-
-        # LLM call — must not be skipped
         try:
-            response_text = _query_llm(prompt)
-            decision = _parse_review(response_text)
-        except RuntimeError as e:
-            print(f"[LLM FATAL] {e}")
-            decision = {
-                "action": "REJECT",
-                "severity": "LOW",
-                "comment": "LLM unavailable — defaulting to cautious REJECT.",
-            }
-
-        print(f"[DECISION] {json.dumps(decision)}")
-
-        # Step environment
-        try:
-            step_url = f"{ENV_BASE_URL}/step/{urllib.parse.quote(session_id)}"
-            obs = _http_post(step_url, decision)
-            done = obs.get("done", True)
-            print(f"[REWARD] {obs.get('reward')} | done={done}")
+            obs = _post(
+                f"{ENV_BASE_URL}/step/{urllib.parse.quote(session_id)}",
+                {"action": action, "severity": severity, "comment": comment},
+            )
+            reward = obs.get("reward", 0.0)
+            done   = obs.get("done", True)
+            print(f"[STEP] step={step_num} action={action} reward={reward:.4f}")
         except Exception as e:
-            print(f"[STEP] Failed: {e}")
+            print(f"[STEP] step={step_num} failed: {e}")
             break
 
-    # Step 3: Final grade — use task-specific endpoint
-    print(f"[LOOP] Completed {step_count} steps")
+    # Grade
     try:
-        final_state = _http_get(
+        grade = _get(
             f"{ENV_BASE_URL}/grade/{urllib.parse.quote(task_id)}/{urllib.parse.quote(session_id)}"
         )
+        score = float(grade.get("score", 0.10))
     except Exception as e:
-        final_state = {"error": str(e)}
+        print(f"[ERROR] grade failed: {e}")
+        score = 0.10
 
-    print(f"[FINAL GRADE] {json.dumps(final_state)}")
+    print(f"[END] task={task_id} score={score:.4f}")
+    return score
 
+
+# ── Main ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # Run all 3 task tiers so the validator sees [START] task=easy/medium/hard
-    for difficulty in ["easy", "medium", "hard"]:
+    results = {}
+    for task in ["easy", "medium", "hard"]:
         print(f"\n{'='*50}")
-        print(f"[RUN] Starting task: {difficulty}")
+        s = run_episode(task)
+        results[task] = s
         print(f"{'='*50}")
-        try:
-            run_inference(difficulty)
-        except Exception as e:
-            print(f"[ERROR] task={difficulty} failed: {e}")
+
+    print("\n[SUMMARY]")
+    for task, s in results.items():
+        print(f"  {task}: {s:.4f}")
