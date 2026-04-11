@@ -1,8 +1,9 @@
-name: CodeReviewEnv
-version: "2.0.0"
-description: "AI-powered code vulnerability detection benchmark. Agents review code snippets and must correctly APPROVE safe code or REJECT vulnerable code, with correct severity and explanation."
+spec_version: "1.0"
 
 environment:
+  name: "CyberGuard Code Review"
+  description: "An AI security code review environment where agents must detect vulnerabilities in code snippets across three difficulty tiers."
+  version: "2.0.0"
   dockerfile: "Dockerfile"
   endpoints:
     reset: "/reset"
@@ -10,22 +11,22 @@ environment:
     state: "/state/{session_id}"
 
 tasks:
-  - id: "easy"
+  - id: easy
     name: "Beginner Security Review"
     description: "Review code snippets for obvious vulnerabilities like SQL injection and XSS. Snippet difficulty is low."
-    reward_range: [0.0, 1.0]
+    reward_range: [0.1, 0.99]
     grader: "/grade/easy/{session_id}"
 
-  - id: "medium"
+  - id: medium
     name: "Intermediate Security Review"
     description: "Review code snippets for moderate vulnerabilities like path traversal and command injection."
-    reward_range: [0.0, 1.0]
+    reward_range: [0.1, 0.99]
     grader: "/grade/medium/{session_id}"
 
-  - id: "hard"
+  - id: hard
     name: "Advanced Security Review"
     description: "Review code snippets for subtle vulnerabilities like timing attacks and open redirects."
-    reward_range: [0.0, 1.0]
+    reward_range: [0.1, 0.99]
     grader: "/grade/hard/{session_id}"
 
 agent:

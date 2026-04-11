@@ -124,8 +124,8 @@ _SCORE = {
     "approve_bug":     0.10,   # catastrophic
 }
 
-# Strict exclusive bounds — score must NEVER be exactly 0.0 or 1.0
-_SCORE_MIN = 0.01
+# Strict exclusive bounds — rewards must be in range [0.10, 0.99]
+_SCORE_MIN = 0.10
 _SCORE_MAX = 0.99
 
 
@@ -301,7 +301,7 @@ class CodeReviewEnvironment:
     def grader_score(self) -> float:
         """Compute final trajectory-adjusted score — always strictly in (0.001, 0.999)."""
         if not self._step_scores:
-            return 0.5  # mid-range fallback, never 0 or 1
+            return 0.10  # minimum allowed score, never 0
 
         n = len(self._step_scores)
         mean = sum(self._step_scores) / n

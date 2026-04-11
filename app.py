@@ -224,9 +224,9 @@ async def _process_grade(session_id: str, expected_task_id: str):
     env = environments[session_id]
     s = env.state
 
-    # Already clamped to (0.01, 0.99) inside env.grader_score
-    score = float(s.grader_score) if s.grader_score is not None else 0.5
-    score = max(0.01, min(0.99, score))
+    # Clamped to [0.10, 0.99] as per OpenEnv reward range requirement
+    score = float(s.grader_score) if s.grader_score is not None else 0.10
+    score = max(0.10, min(0.99, score))
 
     return {
         "score": score,
