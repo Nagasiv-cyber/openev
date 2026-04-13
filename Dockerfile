@@ -13,6 +13,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project source
 COPY pyproject.toml .
 COPY server/ ./server/
+COPY dashboard/ ./dashboard/
+COPY advanced_multimarket_env.py .
+COPY advanced_baseline_agents.py .
+COPY advanced_evaluation_framework.py .
+COPY bloomberg_adapter.py .
 COPY inference.py .
 COPY openenv.yaml .
 

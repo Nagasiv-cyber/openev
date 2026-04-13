@@ -3,11 +3,13 @@ server/app.py — Main FastAPI application for the OpenEnv Code Review environme
 Entry point: openev.server.app:app
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
+from contextlib import asynccontextmanager
+import asyncio
 import sys
 import os
 
@@ -16,13 +18,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from .environment import CodeReviewEnvironment
 from .grader import grade_easy, grade_medium, grade_hard
+from .swarm import initialize_swarm, simulation_loop, active_connections, HUMAN_PORTFOLIO, AGENTS_REGISTRY
+import json
 
 # ── App ────────────────────────────────────────────────────────────────────────
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize GreenArb Swarm
+    initialize_swarm()
+    asyncio.create_task(simulation_loop())
+    yield
+
 app = FastAPI(
-    title="OpenEnv Code Review Environment",
-    description="AI security code review benchmark — agents APPROVE/REJECT code snippets.",
-    version="2.0.0",
+    title="GreenArb OpenEnv MVP",
+    description="AI security code review benchmark + Swarm Arbitrage Orchestrator.",
+    version="2.1.0",
+    lifespan=lifespan
 )
 
 # Mount dashboard static files
@@ -96,6 +108,35 @@ async def validate():
         ],
     }
 
+
+# ── Swarm WebSocket ────────────────────────────────────────────────────────────
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    from fastapi import WebSocketDisconnect
+    await websocket.accept()
+    active_connections.append(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                payload = json.loads(data)
+                if payload.get("type") == "human_trade":
+                    action = payload.get("action")
+                    asset = payload.get("asset")
+                    amount = float(payload.get("amount", 0))
+                    price = 60000.0 if "BTC" in asset else 2500.0
+                    cost = amount * price
+                    if action == "BUY" and cost <= HUMAN_PORTFOLIO["cash"]:
+                        HUMAN_PORTFOLIO["cash"] -= cost
+                        HUMAN_PORTFOLIO["inventory"][asset] += amount
+                    elif action == "SELL" and HUMAN_PORTFOLIO["inventory"].get(asset, 0) >= amount:
+                        HUMAN_PORTFOLIO["cash"] += cost
+                        HUMAN_PORTFOLIO["inventory"][asset] -= amount
+            except: pass
+    except WebSocketDisconnect:
+        if websocket in active_connections:
+            active_connections.remove(websocket)
 
 # ── OpenEnv core endpoints ─────────────────────────────────────────────────────
 

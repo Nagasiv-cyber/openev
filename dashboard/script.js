@@ -1,4 +1,6 @@
-const ws = new WebSocket('ws://localhost:8001/ws');
+const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const wsUrl = `${protocol}//${window.location.host}/ws`;
+const ws = new WebSocket(wsUrl);
 
 const elements = {
     globalPnl: document.getElementById('global-pnl'),

@@ -1,5 +1,5 @@
 """
-Antigravity Orchestrator v2.0
+GreenArb Orchestrator
 Deploys and manages 100 concurrent active agents in the OpenEnv Multi-market Arbitrage environment.
 """
 
@@ -252,7 +252,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Antigravity Orchestrator", lifespan=lifespan)
+app = FastAPI(title="GreenArb Orchestrator", lifespan=lifespan)
 
 # Dashboard static files
 app.mount("/dashboard", StaticFiles(directory="dashboard", html=True), name="dashboard")
