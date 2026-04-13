@@ -4,77 +4,103 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Antigravity | Swarm Orchestrator</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
-    <div class="app-background">
-        <div class="blob blob-1"></div>
-        <div class="blob blob-2"></div>
-        <div class="blob blob-3"></div>
-    </div>
-    
     <div class="app-container">
-        <header class="glass-panel main-header">
+        <!-- COMMAND LINE BAR -->
+        <div class="command-bar">
+            <span class="command-prompt">1) &lt;GO&gt;</span>
+            <input type="text" id="terminal-input" class="command-input" placeholder="SWARM MONITOR (e.g. BUY 5 BTC)" autocomplete="off">
+            <span class="blinking-cursor">&#9608;</span>
+        </div>
+
+        <header class="terminal-panel main-header">
             <div class="branding">
                 <h1>ANTIGRAVITY</h1>
-                <span class="version">v2.0 Orchestrator</span>
+                <span class="version">v2.0 ORCH</span>
             </div>
             <div class="global-metrics">
                 <div class="metric">
-                    <span class="label">Total Swarm Network P&L</span>
+                    <span class="label">P&L</span>
                     <span class="value success" id="global-pnl">$0.00</span>
                 </div>
                 <div class="metric">
-                    <span class="label">Composite Sharpe</span>
+                    <span class="label">SHARPE</span>
                     <span class="value" id="global-sharpe">0.00</span>
                 </div>
                 <div class="metric">
-                    <span class="label">Active Agents</span>
+                    <span class="label">ACTIVE</span>
                     <span class="value" id="active-agents">0</span>
                 </div>
             </div>
             <div class="controls">
-                <button id="btn-killswitch" class="btn btn-danger">Halt Trading</button>
+                <button id="btn-killswitch" class="btn btn-danger">Halt</button>
             </div>
         </header>
 
         <div class="dashboard-grid">
-            <!-- Left panel: Event stream -->
-            <aside class="glass-panel event-log">
-                <h2>System Events & Alerts</h2>
-                <div class="log-container" id="log-feed">
-                    <div class="log-entry info">
-                        <span class="time">[--:--:--]</span> <span class="msg">System initialized. Awaiting orchestrator connection...</span>
-                    </div>
-                </div>
-            </aside>
-
-            <!-- Main view: Agent matrix -->
-            <main class="glass-panel agent-matrix">
+            <!-- Main view: Agent matrix table -->
+            <main class="terminal-panel agent-matrix">
                 <div class="matrix-header">
-                    <h2>Live Agent Swarm <span class="badge">Monitoring 100 Instances</span></h2>
+                    <div class="matrix-title">AGENT SWARM MATRIX <span class="badge">100 INSTANCES</span></div>
                     <div class="filters">
                         <select id="strategy-filter">
-                            <option value="all">All Strategies</option>
-                            <option value="RiskAwareHybridTrader">Risk Aware Hybrid</option>
-                            <option value="AltDataDrivenTrader">Alt-Data</option>
+                            <option value="all">ALL STRATEGIES</option>
+                            <option value="RiskAwareHybridTrader">RISK AWARE</option>
+                            <option value="AltDataDrivenTrader">ALT DATA</option>
                             <option value="HFTMeanReversionist">HFT</option>
-                            <option value="DeFiArbitrageur">DeFi</option>
-                            <option value="CrossExchangeArbitrageur">Cross-Exchange</option>
-                            <option value="GreedyAgent">Greedy</option>
-                            <option value="RandomAgent">Random</option>
+                            <option value="DeFiArbitrageur">DEFI</option>
+                            <option value="CrossExchangeArbitrageur">CROSS EX</option>
+                            <option value="GreedyAgent">GREEDY</option>
+                            <option value="RandomAgent">RANDOM</option>
                         </select>
                     </div>
                 </div>
                 
-                <div class="agents-grid" id="agents-grid">
-                    <!-- Agent cards will be injected here -->
-                    <div class="loader-state">Connecting to Orchestrator Node...</div>
+                <div class="table-container">
+                    <table class="bbg-table" id="agents-table">
+                        <thead>
+                            <tr>
+                                <th class="text-left">ID</th>
+                                <th class="text-left">STRATEGY</th>
+                                <th class="text-left">POSITIONS</th>
+                                <th>P&L ($)</th>
+                                <th>ROI (%)</th>
+                                <th>SHARPE</th>
+                                <th>MAX DD</th>
+                                <th class="text-center">STATUS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="agents-tbody">
+                            <tr><td colspan="8" class="text-center" style="padding: 20px;">CONNECTING TO ORCHESTRATOR NODE...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </main>
+
+            <!-- Right panel: Event stream -->
+            <aside class="terminal-panel right-column">
+                
+                <div class="panel-title">HUMAN PORTFOLIO (MANUAL) <span style="color:var(--magenta)">[GOD-MODE]</span></div>
+                <div class="human-portfolio-grid" style="margin-bottom: 2rem; border: 1px solid var(--border-color); padding: 10px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom: 0.5rem;"><span style="color:var(--text-muted)">CASH:</span> <span id="human-cash" style="color:var(--magenta)">$100,000.00</span></div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom: 0.5rem;"><span style="color:var(--text-muted)">PNL:</span> <span id="human-pnl" style="color:var(--cyan)">$0.00</span></div>
+                    <div style="border-top:1px dashed var(--border-color); margin: 0.5rem 0;"></div>
+                    <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted)">BTC/USD:</span> <span id="human-btc" style="color:var(--cyan)">0.00</span></div>
+                    <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted)">ETH/USD:</span> <span id="human-eth" style="color:var(--cyan)">0.00</span></div>
+                </div>
+
+                <div class="panel-title">SYSTEM EVENT LOG <span style="color:var(--bg-dark)">[PAGE 1]</span></div>
+                <div class="log-container" id="log-feed">
+                    <div class="log-entry info">
+                        <div><span class="time">[--:--:--]</span> <span class="msg">System initialized. Awaiting feed...</span></div>
+                    </div>
+                </div>
+            </aside>
         </div>
     </div>
-    <script src="script.js"></script>
+    <script src="script.js?v=2"></script>
 </body>
 </html>

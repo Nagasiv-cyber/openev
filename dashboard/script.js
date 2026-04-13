@@ -4,16 +4,23 @@ const elements = {
     globalPnl: document.getElementById('global-pnl'),
     globalSharpe: document.getElementById('global-sharpe'),
     activeAgents: document.getElementById('active-agents'),
-    agentsGrid: document.getElementById('agents-grid'),
+    agentsTbody: document.getElementById('agents-tbody'),
     logFeed: document.getElementById('log-feed'),
-    strategyFilter: document.getElementById('strategy-filter')
+    strategyFilter: document.getElementById('strategy-filter'),
+    killswitch: document.getElementById('btn-killswitch'),
+    terminalInput: document.getElementById('terminal-input'),
+    humanCash: document.getElementById('human-cash'),
+    humanBtc: document.getElementById('human-btc'),
+    humanEth: document.getElementById('human-eth'),
+    humanPnl: document.getElementById('human-pnl')
 };
 
 let agentsData = {};
 let currentFilter = 'all';
 
 ws.onopen = () => {
-    addLog('System', 'Connected to Orchestrator Node WebSocket.', 'info');
+    addLog('SYS', 'CONNECTED TO DBG SERVER.', 'info');
+    elements.agentsTbody.innerHTML = ''; // clear loading state
 };
 
 ws.onmessage = (event) => {
@@ -22,10 +29,19 @@ ws.onmessage = (event) => {
         
         if (data.type === 'global_metrics') {
             updateGlobalMetrics(data);
+            if (data.human_portfolio) {
+                if(elements.humanCash) elements.humanCash.textContent = '$' + data.human_portfolio.cash.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+                if(elements.humanPnl) {
+                    elements.humanPnl.textContent = '$' + data.human_portfolio.pnl.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+                    elements.humanPnl.style.color = data.human_portfolio.pnl >= 0 ? 'var(--cyan)' : 'var(--red)';
+                }
+                if(elements.humanBtc) elements.humanBtc.textContent = (data.human_portfolio.inventory['BTC/USD'] || 0).toFixed(4);
+                if(elements.humanEth) elements.humanEth.textContent = (data.human_portfolio.inventory['ETH/USD'] || 0).toFixed(4);
+            }
         } else if (data.type === 'agent_updates') {
             updateAgents(data.agents);
         } else if (data.type === 'alert') {
-            addLog(`Agent ${data.agent_id}`, data.message, data.level);
+            addLog(`AG-${data.agent_id}`, data.message, data.level);
         }
     } catch (e) {
         console.error("Failed to parse message:", e);
@@ -33,7 +49,7 @@ ws.onmessage = (event) => {
 };
 
 ws.onclose = () => {
-    addLog('System', 'Connection to Orchestrator lost. Reconnecting...', 'critical');
+    addLog('SYS', 'CONNECTION LOST. RETRYING...', 'critical');
 };
 
 function updateGlobalMetrics(metrics) {
@@ -48,65 +64,57 @@ function updateGlobalMetrics(metrics) {
 }
 
 function updateAgents(agents) {
-    // If it's the first render, clear loader
-    if (elements.agentsGrid.querySelector('.loader-state')) {
-        elements.agentsGrid.innerHTML = '';
-    }
-
+    // We recreate the entire table body for simplicity since rows are fixed in sorting usually,
+    // but updating existing rows is more efficient. Let's update existing rows if they exist.
     agents.forEach(agent => {
         agentsData[agent.id] = agent;
-        renderAgent(agent);
+        renderAgentRow(agent);
     });
 }
 
-function renderAgent(agent) {
-    if (currentFilter !== 'all' && agent.strategy !== currentFilter) {
-        const existingCard = document.getElementById(`agent-${agent.id}`);
-        if(existingCard) existingCard.style.display = 'none';
+function renderAgentRow(agent) {
+    // check if it should be displayed
+    const shouldDisplay = (currentFilter === 'all' || agent.strategy === currentFilter);
+    let row = document.getElementById(`row-${agent.id}`);
+    
+    if (!shouldDisplay) {
+        if(row) row.style.display = 'none';
         return;
     }
 
-    let card = document.getElementById(`agent-${agent.id}`);
-    
-    if (!card) {
-        card = document.createElement('div');
-        card.id = `agent-${agent.id}`;
-        card.className = 'agent-card';
-        elements.agentsGrid.appendChild(card);
+    if (!row) {
+        row = document.createElement('tr');
+        row.id = `row-${agent.id}`;
+        elements.agentsTbody.appendChild(row);
     } else {
-        card.style.display = 'flex';
+        row.style.display = 'table-row';
     }
 
-    // Determine status styling
-    let statusClass = '';
-    if (agent.max_dd > 0.05 || agent.sharpe < 0.5) statusClass = 'status-danger';
-    else if (agent.sharpe < 1.0) statusClass = 'status-warning';
+    let status = 'RUN';
+    let rowClass = '';
+    
+    if (agent.max_dd > 0.05 || agent.sharpe < 0.5) {
+        rowClass = 'row-danger';
+        status = 'LIQ';
+    } else if (agent.sharpe < 1.0) {
+        rowClass = 'row-warning';
+        status = 'WARN';
+    }
 
-    card.className = `agent-card ${statusClass}`;
+    row.className = rowClass;
 
     const pnlColor = agent.pnl >= 0 ? 'val-up' : 'val-down';
 
-    card.innerHTML = `
-        <div class="agent-id">ID: ${agent.id}</div>
-        <div class="agent-strategy">${agent.strategy}</div>
-        <div class="agent-stats">
-            <div class="stat-box">
-                <span class="stat-label">P&L ($)</span>
-                <span class="stat-val ${pnlColor}">${agent.pnl.toFixed(2)}</span>
-            </div>
-            <div class="stat-box">
-                <span class="stat-label">ROI (%)</span>
-                <span class="stat-val ${pnlColor}">${(agent.roi * 100).toFixed(2)}%</span>
-            </div>
-            <div class="stat-box">
-                <span class="stat-label">Sharpe</span>
-                <span class="stat-val ${agent.sharpe >= 1.5 ? 'val-up' : 'val-down'}">${agent.sharpe.toFixed(2)}</span>
-            </div>
-            <div class="stat-box">
-                <span class="stat-label">Max DD</span>
-                <span class="stat-val ${agent.max_dd > 0.05 ? 'val-down' : ''}">${(agent.max_dd * 100).toFixed(1)}%</span>
-            </div>
-        </div>
+    // Build row cells
+    row.innerHTML = `
+        <td class="text-left font-mono" style="color:var(--text-muted)">${agent.id}</td>
+        <td class="text-left">${agent.strategy.toUpperCase().substring(0, 16)}</td>
+        <td class="text-left font-mono" style="color:var(--cyan); font-size: 0.7rem;">${agent.positions || 'NONE'}</td>
+        <td class="${pnlColor}">${agent.pnl.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+        <td class="${pnlColor}">${(agent.roi * 100).toFixed(2)}%</td>
+        <td class="${agent.sharpe >= 1.5 ? 'val-up' : 'val-down'}">${agent.sharpe.toFixed(2)}</td>
+        <td class="${agent.max_dd > 0.05 ? 'val-down' : ''}">${(agent.max_dd * 100).toFixed(1)}%</td>
+        <td class="text-center" style="color: var(--bg-dark); background-color: ${rowClass === 'row-danger' ? 'var(--danger)' : (rowClass === 'row-warning' ? 'var(--warning)' : 'var(--success)')}; font-weight: bold;">${status}</td>
     `;
 }
 
@@ -117,27 +125,60 @@ function addLog(source, msg, level = 'info') {
     const time = new Date().toLocaleTimeString('en-US', { hour12: false });
     
     entry.innerHTML = `
-        <span class="time">[${time}] ${source}</span> 
-        <span class="msg">${msg}</span>
+        <div>
+            <span class="time">[${time}]</span> <span style="font-weight:bold; color:var(--primary)">${source}</span>
+        </div>
+        <div class="msg" style="margin-top:2px;">${msg.toUpperCase()}</div>
     `;
     
     elements.logFeed.prepend(entry);
     
-    // Keep max 50 logs
-    if (elements.logFeed.children.length > 50) {
+    // Keep max 100 logs
+    if (elements.logFeed.children.length > 100) {
         elements.logFeed.lastChild.remove();
     }
 }
 
 elements.strategyFilter.addEventListener('change', (e) => {
     currentFilter = e.target.value;
-    // Re-render all existing
-    Object.values(agentsData).forEach(agent => renderAgent(agent));
+    Object.values(agentsData).forEach(agent => renderAgentRow(agent));
 });
 
 document.getElementById('btn-killswitch').addEventListener('click', () => {
-    if(confirm("DANGER: This will halt all trading and liquidate positions. Proceed?")) {
+    if(confirm("DANGER: HALT NETWORK?")) {
         // ws.send(JSON.stringify({command: "HALT"}));
-        addLog('SYSTEM', 'KILLSWITCH ACTIVATED. LIQUIDATING...', 'critical');
+        addLog('SYS', 'HALT COMMAND RECEIVED. LIQUIDATING...', 'critical');
     }
 });
+
+// Manual Trading Command Processor
+if(elements.terminalInput) {
+    elements.terminalInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            const cmd = elements.terminalInput.value.trim().toUpperCase();
+            elements.terminalInput.value = '';
+            
+            // Parse "BUY 5 BTC" or "SELL 10 ETH"
+            const parts = cmd.split(' ');
+            if (parts.length >= 3 && (parts[0] === 'BUY' || parts[0] === 'SELL')) {
+                const action = parts[0];
+                const amount = parseFloat(parts[1]);
+                let asset = parts[2] === 'BTC' ? 'BTC/USD' : (parts[2] === 'ETH' ? 'ETH/USD' : null);
+                
+                if (!isNaN(amount) && asset) {
+                    const payload = {
+                        type: "human_trade",
+                        action: action,
+                        amount: amount,
+                        asset: asset
+                    };
+                    ws.send(JSON.stringify(payload));
+                    addLog('MANUAL', `SENT ORDER: ${action} ${amount} ${asset}`, 'info');
+                    return;
+                }
+            }
+            
+            addLog('ERROR', `INVALID COMMAND: ${cmd}. Use format: BUY 5 BTC`, 'danger');
+        }
+    });
+}

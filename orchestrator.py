@@ -38,6 +38,8 @@ NUM_AGENTS = 100
 CAPITAL_PER_AGENT = 10_000.0  # $1M total / 100 agents
 
 AGENTS_REGISTRY = []
+HUMAN_PORTFOLIO = {"cash": 100000.0, "inventory": {"BTC/USD": 0.0, "ETH/USD": 0.0}, "pnl": 0.0, "roi": 0.0}
+
 AGENT_ENV_MAP: Dict[str, Any] = {}
 
 class OrchestratedAgent:
@@ -61,13 +63,17 @@ class OrchestratedAgent:
         self.evaluator = PerformanceEvaluator(initial_capital=CAPITAL_PER_AGENT)
 
     def to_dict(self):
+        active_positions = {k: v for k, v in self.env.inventory.items() if v > 0}
+        pos_str = ", ".join([f"{k}: {v:.2f}" for k, v in active_positions.items()])
+        
         return {
             "id": self.id,
             "strategy": self.strategy_name,
             "pnl": self.pnl,
             "roi": self.roi,
             "sharpe": self.sharpe,
-            "max_dd": self.max_dd
+            "max_dd": self.max_dd,
+            "positions": pos_str if pos_str else "NONE"
         }
 
 
@@ -168,8 +174,15 @@ async def simulation_loop():
                 
             except Exception as e:
                 # If environment fails due to mock data missing, simulate metrics directly for the UI
-                if step_num % 10 == 0:
-                    pass
+                if np.random.random() < 0.1: # 10% chance to buy BTC
+                    orch_agent.env.inventory["BTC/USD"] = np.random.uniform(0.1, 5.5)
+                elif np.random.random() < 0.05:
+                    orch_agent.env.inventory["BTC/USD"] = 0
+                
+                if np.random.random() < 0.1: # 10% chance to buy ETH
+                    orch_agent.env.inventory["ETH/USD"] = np.random.uniform(10.0, 80.0)
+                elif np.random.random() < 0.05:
+                    orch_agent.env.inventory["ETH/USD"] = 0
             
             # Mock Realism
             if orch_agent.strategy_name == "RiskAwareHybridTrader":
@@ -200,11 +213,19 @@ async def simulation_loop():
         
         # Dispatch WS
         if step_num % 5 == 0:
+            # Mock Human Prices
+            btc_price = 60000 + np.random.normal(0, 100)
+            eth_price = 2500 + np.random.normal(0, 10)
+            hp_val = HUMAN_PORTFOLIO["cash"] + (HUMAN_PORTFOLIO["inventory"]["BTC/USD"] * btc_price) + (HUMAN_PORTFOLIO["inventory"]["ETH/USD"] * eth_price)
+            HUMAN_PORTFOLIO["pnl"] = hp_val - 100000.0
+            HUMAN_PORTFOLIO["roi"] = HUMAN_PORTFOLIO["pnl"] / 100000.0
+            
             payload = {
                 "type": "global_metrics",
                 "total_pnl": global_pnl,
                 "avg_sharpe": avg_sharpe,
-                "active_agents": len(AGENTS_REGISTRY)
+                "active_agents": len(AGENTS_REGISTRY),
+                "human_portfolio": HUMAN_PORTFOLIO
             }
             await broadcast_ws(json.dumps(payload))
             
@@ -251,6 +272,26 @@ async def websocket_endpoint(websocket: WebSocket):
             if data == "HALT":
                 logger.critical("KILLSWITCH RECEIVED: Halting all agents!")
                 AGENTS_REGISTRY.clear()
+            else:
+                try:
+                    payload = json.loads(data)
+                    if payload.get("type") == "human_trade":
+                        action = payload.get("action")
+                        asset = payload.get("asset")
+                        amount = float(payload.get("amount", 0))
+                        
+                        price = 60000.0 if "BTC" in asset else 2500.0
+                        cost = amount * price
+                        
+                        if action == "BUY" and cost <= HUMAN_PORTFOLIO["cash"]:
+                            HUMAN_PORTFOLIO["cash"] -= cost
+                            HUMAN_PORTFOLIO["inventory"][asset] += amount
+                        elif action == "SELL" and HUMAN_PORTFOLIO["inventory"].get(asset, 0) >= amount:
+                            HUMAN_PORTFOLIO["cash"] += cost
+                            HUMAN_PORTFOLIO["inventory"][asset] -= amount
+                            
+                except Exception as e:
+                    pass
     except WebSocketDisconnect:
         active_connections.remove(websocket)
 

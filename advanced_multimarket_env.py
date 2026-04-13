@@ -13,6 +13,7 @@ Architecture:
 """
 
 from dataclasses import dataclass, field
+from bloomberg_adapter import BloombergPricingFeed, BloombergAltDataFeed
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
 import numpy as np
@@ -127,6 +128,28 @@ class MarketAggregator:
         self.price_discrepancies = {}  # Track price differences between markets
         self.liquidity_history = {}    # Track how liquidity changes
         self.funding_rate_history = {} # For futures
+        
+        # Bloomberg Integration
+        self.bbg_pricing = BloombergPricingFeed()
+        self._subscribe_bbg()
+        
+    def _subscribe_bbg(self):
+        def make_callback(pair):
+            def callback(data):
+                self.add_hft_feed({
+                    "pair": pair,
+                    "exchange": "BLOOMBERG",
+                    "bid": data.get("bid", 0),
+                    "ask": data.get("ask", 0),
+                    "bid_vol": data.get("bid_size", 100),
+                    "ask_vol": data.get("ask_size", 100),
+                    "timestamp": datetime.now().timestamp(),
+                    "imbalance": 1.0
+                })
+            return callback
+            
+        self.bbg_pricing.subscribe("BTCUSD Curncy", make_callback("BTC/USD"))
+        self.bbg_pricing.subscribe("ETHUSD Curncy", make_callback("ETH/USD"))
     
     def add_cex_feed(self, binance_snapshot: MarketSnapshot):
         """Add price from centralized exchange (Binance, Coinbase)"""
@@ -494,8 +517,17 @@ class AltDataPipeline:
 class SentimentEngine:
     """Analyzes sentiment from news, social media, etc."""
     
+    def __init__(self):
+        self.bbg_alt = BloombergAltDataFeed()
+    
     def get_sentiment(self, asset: str) -> float:
         """Return sentiment score (-1 to 1)"""
+        if self.bbg_alt.manager.is_connected():
+            bbg_asset = f"{asset}USD Curncy"
+            sentiment = self.bbg_alt.get_reference_data(bbg_asset, "NEWS_SENTIMENT_DAILY")
+            if sentiment is not None:
+                return sentiment
+
         # In production: use NLP on news articles, tweets
         # For now: simulate
         import random
@@ -516,8 +548,16 @@ class OnChainAnalyzer:
 class MacroMonitor:
     """Monitors macro indicators (VIX, yields, Fed policy)"""
     
+    def __init__(self):
+        self.bbg_alt = BloombergAltDataFeed()
+    
     def get_risk_sentiment(self) -> float:
         """Return macro risk sentiment"""
+        if self.bbg_alt.manager.is_connected():
+            vix = self.bbg_alt.get_reference_data("VIX Index", "PX_LAST")
+            if vix is not None:
+                return max(-1.0, min(1.0, (20 - vix) / 20.0))
+                
         # In production: query economic data APIs
         import random
         return random.uniform(-1, 1)
@@ -893,15 +933,15 @@ class AdvancedMultiMarketArbitrageEnv:
 
 
 print("""
-✅ ADVANCED MULTI-MARKET ARBITRAGE RL ENVIRONMENT
+[OK] ADVANCED MULTI-MARKET ARBITRAGE RL ENVIRONMENT
 
 Integrated Components:
-  ✓ Market Aggregation (CEX, DEX, HFT)
-  ✓ DeFi Execution (Uniswap, Curve, Gas costs)
-  ✓ HFT Simulation (Low-latency orders)
-  ✓ Alternative Data Pipeline (Sentiment, On-chain, Macro)
-  ✓ Advanced Rewards (Risk-adjusted, multi-factor)
-  ✓ Realistic Constraints (Slippage, latency, costs)
+  [+] Market Aggregation (CEX, DEX, HFT)
+  [+] DeFi Execution (Uniswap, Curve, Gas costs)
+  [+] HFT Simulation (Low-latency orders)
+  [+] Alternative Data Pipeline (Sentiment, On-chain, Macro)
+  [+] Advanced Rewards (Risk-adjusted, multi-factor)
+  [+] Realistic Constraints (Slippage, latency, costs)
 
 Ready for production training!
 """)

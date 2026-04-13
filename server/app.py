@@ -5,6 +5,7 @@ Entry point: openev.server.app:app
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import sys
@@ -23,6 +24,10 @@ app = FastAPI(
     description="AI security code review benchmark — agents APPROVE/REJECT code snippets.",
     version="2.0.0",
 )
+
+# Mount dashboard static files
+dashboard_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard")
+app.mount("/dashboard", StaticFiles(directory=dashboard_path), name="dashboard")
 
 # In-memory session store
 _sessions: Dict[str, CodeReviewEnvironment] = {}
@@ -46,24 +51,26 @@ async def root():
   <meta charset="UTF-8">
   <title>CyberGuard Code Review — OpenEnv</title>
   <style>
-    body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc;
-           display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 1rem;
+    body { font-family: 'JetBrains Mono', 'Courier New', Courier, monospace; background: #000; color: #ffb000;
+           display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-transform: uppercase; }
+    .card { background: #000; border: 1px solid #333; border-radius: 0;
             padding: 3rem; text-align: center; max-width: 480px; }
-    h1 { color: #38bdf8; margin: 0 0 0.5rem; }
-    p  { color: #94a3b8; }
-    .badge { background: #052e16; color: #4ade80; border: 1px solid #166534;
-             border-radius: 9999px; padding: 0.3rem 1rem; font-size: 0.85rem; }
-    a { color: #38bdf8; }
+    h1 { color: #ffb000; margin: 0 0 0.5rem; font-weight: bold; }
+    p  { color: #b08d00; }
+    .badge { background: #000; color: #00ff00; border: 1px solid #00ff00;
+             padding: 0.3rem 1rem; font-size: 0.85rem; font-weight: bold; text-transform: uppercase; }
+    a { color: #ffb000; text-decoration: none; border-bottom: 1px solid #ffb000; }
+    a:hover { background: #ffb000; color: #000; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>🛡️ CyberGuard Code Review</h1>
-    <p>OpenEnv AI Security Benchmark</p>
-    <span class="badge">● Running</span>
+    <h1>[CYBERGUARD CODE REVIEW]</h1>
+    <p>> OPENENV AI SECURITY BENCHMARK _</p>
+    <br>
+    <span class="badge">● STATUS: RUNNING</span>
     <p style="margin-top:1.5rem">
-      <a href="/docs">API Docs</a> &nbsp;|&nbsp; <a href="/health">Health</a>
+      <a href="/docs">[API DOCS]</a> &nbsp;|&nbsp; <a href="/health">[HEALTH]</a> &nbsp;|&nbsp; <a href="/dashboard/index.html">[DASHBOARD]</a>
     </p>
   </div>
 </body>
