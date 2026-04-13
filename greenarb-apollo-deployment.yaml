@@ -1,0 +1,168 @@
+# greenarb-apollo-deployment.yaml
+# Palantir Apollo "Follow the Sun" Deployment Manifest
+# GreenArb Sustainable Quantitative Trading Engine
+#
+# Strategy: Workload migrates to the sovereign data center where the
+# renewable energy mix is currently at its peak.
+#
+# NSE (India)  → Mumbai DC during solar peak hours
+# NYSE (US)    → Virginia DC during US trading hours
+# Dark Hours   → Stockholm DC (85%+ hydro-powered, FPGA-only mode)
+
+apiVersion: apollo.palantir.com/v1
+kind: DeploymentManifest
+metadata:
+  name: greenarb-trading-engine
+  labels:
+    tier: production
+    compliance: esga-level-2
+    sustainability: carbon-aware
+    version: "4.2.0"
+
+spec:
+  workload:
+    name: greenarb-quant-engine
+    image: greenarb/trading-engine:4.2.0-rocm7
+    resources:
+      gpu: amd-instinct-mi325x
+      gpu_count: 2
+      memory: 128Gi
+      vram: 256Gi   # Dual MI325X HBM3e (128GB each)
+      fpga: amd-alveo-u250
+      fpga_count: 1  # Dark-hours compute
+
+  # ── Follow-the-Sun Routing Rules ──────────────────────────
+  environmentConstraints:
+
+    # ---------- NSE Primary (Mumbai) ----------
+    - name: nse-primary
+      region: ap-south-1             # AWS Mumbai / Azure Central India
+      sovereignCloud: true
+      dataResidency: IN              # SEBI: Indian market data stays in India
+      activeWindow:
+        start: "03:30Z"              # 09:00 IST — NSE pre-open
+        end: "10:30Z"                # 16:00 IST — NSE close + settlement
+      energyConstraints:
+        minRenewableMix: 0.40        # Minimum 40% renewable grid
+        preferredSource: solar       # India solar corridor
+        carbonIntensityMax: 450      # gCO2/kWh ceiling
+        provider: watttime           # Live grid carbon API
+      hardwareProfile:
+        mode: gpu-full               # MI325X active
+        tdpCap: dynamic              # Governed by ActiveEnergyScaler
+        fpgaMode: standby
+
+    # ---------- NYSE Primary (Virginia) ----------
+    - name: nyse-primary
+      region: us-east-1              # AWS Virginia / Azure East US
+      sovereignCloud: false
+      dataResidency: US              # SEC: US market data stays in US
+      activeWindow:
+        start: "13:30Z"              # 09:30 EST — NYSE open
+        end: "21:00Z"                # 16:00 EST — NYSE close
+      energyConstraints:
+        minRenewableMix: 0.35
+        preferredSource: wind        # PJM wind corridor
+        carbonIntensityMax: 400
+        provider: electricitymaps
+      hardwareProfile:
+        mode: gpu-full
+        tdpCap: dynamic
+        fpgaMode: standby
+
+    # ---------- NSE-NYSE Overlap Window ----------
+    - name: overlap-window
+      region: ap-south-1             # Keep in India (closer to NSE gateway)
+      activeWindow:
+        start: "13:30Z"              # 19:00 IST = 09:30 EST
+        end: "15:30Z"                # 21:00 IST = 11:00 EST
+      hardwareProfile:
+        mode: gpu-full-dual          # Both MI325X GPUs at max TDP
+        vramPartition:               # Dual model residency
+          nse: 40%
+          nyse: 40%
+          shared: 20%
+        tdpCap: 500                  # Full power — maximum alpha window
+
+    # ---------- Dark Hours (Stockholm — Hydro Powered) ----------
+    - name: dark-hours-standby
+      region: eu-north-1             # Stockholm / Nordic zone
+      sovereignCloud: true
+      dataResidency: EU              # Only simulation data — no live market
+      activeWindow:
+        start: "21:00Z"              # After NYSE close
+        end: "03:30Z"                # Before NSE pre-open
+      energyConstraints:
+        minRenewableMix: 0.85        # Nordic grid ~90% renewable (hydro+wind)
+        preferredSource: hydro
+        carbonIntensityMax: 50       # Sweden: ~30 gCO2/kWh
+      hardwareProfile:
+        mode: fpga-only              # GPU suspended (saves ~55W)
+        gpuMode: s3-sleep            # Deep sleep — thermal pre-condition on wake
+        fpgaMode: active             # Alveo U250 running 3-phase pipeline
+        fpgaPowerCap: 25             # 25W FPGA pipeline
+
+  # ── GPU Wake Protocol ────────────────────────────────────
+  wakeProtocol:
+    minutesBefore: 15                # Begin thermal pre-conditioning
+    warmupTdpW: 200                  # Gentle warmup power draw
+    targetJunctionTempC: 65          # Optimal steady-state temperature
+    modelPreload: true               # Load NSE/NYSE models into VRAM during ramp
+    validationCheck: true            # Run dummy inference to verify correctness
+
+  # ── Migration Policy ────────────────────────────────────
+  migrationPolicy:
+    strategy: follow-the-sun
+    triggerConditions:
+      - type: schedule               # Time-based primary trigger
+      - type: energy                  # Override: migrate if renewable drops below min
+        action: migrate_to_greenest
+        cooldownMinutes: 30          # Don't thrash between DCs
+      - type: latency                 # Abort: don't migrate if exchange latency > 5ms
+        maxLatencyMs: 5
+      - type: regulatory             # Never migrate data across sovereignty boundary
+        action: block
+
+    stateTransfer:
+      method: checkpoint-restore     # Serialize model state → transfer → resume
+      maxDowntimeMs: 200             # Sub-200ms migration (no missed ticks)
+      persistTo: foundry-dataset     # Palantir Foundry audit trail
+      compressionAlgo: lz4           # Fast compression for model checkpoints
+
+  # ── Canary Deployment ────────────────────────────────────
+  canaryPolicy:
+    strategy: energy-aware-canary
+    stages:
+      - name: shadow-mode
+        duration: 30m
+        trafficPct: 0                # Predictions only — no real trades
+        energyBudgetWh: 500
+        validationCriteria:
+          maxPredictionError: 0.02   # 2% max error vs. production model
+          maxEnergyPerTrade: 5.0     # Wh ceiling
+
+      - name: low-volume
+        duration: 2h
+        trafficPct: 10
+        maxDrawdownPct: 0.5          # Kill switch: drawdown > 0.5%
+        energyBudgetWh: 2000
+
+      - name: full-production
+        trafficPct: 100
+        energyBudgetWh: null         # Dynamic — governed by EAA formula
+
+  # ── Compliance & Audit ──────────────────────────────────
+  compliance:
+    dataGovernance:
+      nseData: restricted-to-IN      # SEBI regulation
+      nyseData: restricted-to-US     # SEC regulation
+      simulationData: any-region     # Synthetic data can be anywhere
+    auditLog:
+      destination: foundry://greenarb/audit/deployment-log
+      retentionDays: 2555            # 7 years (regulatory minimum)
+      includeEnergyMetrics: true     # Log energy per trade for ESG reporting
+    esgReporting:
+      greenAlphaRatioTarget: 500     # GAR > 500 required
+      carbonBudgetDailyKg: 5.0      # Max 5 kg CO2/day
+      reportFrequency: daily
+      destination: foundry://greenarb/esg/daily-report

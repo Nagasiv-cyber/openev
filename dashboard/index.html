@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GreenArb | Swarm Orchestrator</title>
+    <title>GreenArb | Sustainable Swarm Orchestrator</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
     <div class="app-container">
@@ -19,7 +19,7 @@
         <header class="terminal-panel main-header">
             <div class="branding">
                 <h1>GREENARB</h1>
-                <span class="version">ORCHESTRATOR</span>
+                <span class="version">SUSTAINABLE ORCHESTRATOR</span>
             </div>
             <div class="global-metrics">
                 <div class="metric">
@@ -31,7 +31,11 @@
                     <span class="value" id="global-sharpe">0.00</span>
                 </div>
                 <div class="metric">
-                    <span class="label">ACTIVE</span>
+                    <span class="label">EAA</span>
+                    <span class="value" id="global-eaa" style="color:var(--success)">0.00</span>
+                </div>
+                <div class="metric">
+                    <span class="label">AGENTS</span>
                     <span class="value" id="active-agents">0</span>
                 </div>
             </div>
@@ -80,9 +84,78 @@
                 </div>
             </main>
 
-            <!-- Right panel: Event stream -->
+            <!-- Right panel: Sustainability + Portfolio + Logs -->
             <aside class="terminal-panel right-column">
-                
+
+                <!-- ENERGY & SUSTAINABILITY PANEL -->
+                <div class="panel-title">ENERGY & SUSTAINABILITY <span style="color:var(--success)">[LIVE]</span></div>
+                <div class="sustainability-panel">
+                    <div class="energy-grid">
+                        <div class="energy-stat">
+                            <span class="energy-label">HARDWARE</span>
+                            <span class="energy-value" id="hw-mode" style="color:var(--success)">GPU</span>
+                        </div>
+                        <div class="energy-stat">
+                            <span class="energy-label">COMPUTE</span>
+                            <span class="energy-value" id="compute-mode" style="color:var(--cyan)">IDLE</span>
+                        </div>
+                        <div class="energy-stat">
+                            <span class="energy-label">TDP</span>
+                            <span class="energy-value" id="target-tdp">150W</span>
+                        </div>
+                        <div class="energy-stat">
+                            <span class="energy-label">DRAW</span>
+                            <span class="energy-value" id="power-draw">75W</span>
+                        </div>
+                        <div class="energy-stat">
+                            <span class="energy-label">TEMP</span>
+                            <span class="energy-value" id="junction-temp">45°C</span>
+                        </div>
+                        <div class="energy-stat">
+                            <span class="energy-label">SAVED</span>
+                            <span class="energy-value" id="power-savings" style="color:var(--success)">70%</span>
+                        </div>
+                    </div>
+                    <div class="energy-divider"></div>
+                    <div class="energy-grid">
+                        <div class="energy-stat">
+                            <span class="energy-label">RENEW%</span>
+                            <span class="energy-value" id="renewable-mix" style="color:var(--success)">50%</span>
+                        </div>
+                        <div class="energy-stat">
+                            <span class="energy-label">CO2 g/kWh</span>
+                            <span class="energy-value" id="carbon-intensity">400</span>
+                        </div>
+                        <div class="energy-stat">
+                            <span class="energy-label">CO2 g</span>
+                            <span class="energy-value" id="carbon-emitted">0.0</span>
+                        </div>
+                        <div class="energy-stat">
+                            <span class="energy-label">TAU(h)</span>
+                            <span class="energy-value" id="tau-multiplier">1.0x</span>
+                        </div>
+                        <div class="energy-stat">
+                            <span class="energy-label">GAR</span>
+                            <span class="energy-value" id="green-alpha-ratio" style="color:var(--success)">0</span>
+                        </div>
+                        <div class="energy-stat">
+                            <span class="energy-label">VOL</span>
+                            <span class="energy-value" id="realised-vol">0.00</span>
+                        </div>
+                    </div>
+                    <!-- FPGA Status Bar -->
+                    <div class="energy-divider"></div>
+                    <div class="fpga-status">
+                        <span class="energy-label">FPGA:</span>
+                        <span class="energy-value" id="fpga-phase" style="color:var(--text-muted)">IDLE</span>
+                        <div class="fpga-progress-bar">
+                            <div class="fpga-progress-fill" id="fpga-progress" style="width: 0%"></div>
+                        </div>
+                        <span class="energy-value" id="fpga-sims" style="font-size:0.65rem; color:var(--text-muted)">0 sims</span>
+                    </div>
+                </div>
+
+                <!-- HUMAN PORTFOLIO -->
                 <div class="panel-title">HUMAN PORTFOLIO (MANUAL) <span style="color:var(--magenta)">[GOD-MODE]</span></div>
                 <div class="human-portfolio-grid" style="margin-bottom: 2rem; border: 1px solid var(--border-color); padding: 10px;">
                     <div style="display:flex; justify-content:space-between; margin-bottom: 0.5rem;"><span style="color:var(--text-muted)">CASH:</span> <span id="human-cash" style="color:var(--magenta)">$100,000.00</span></div>
@@ -92,6 +165,7 @@
                     <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted)">ETH/USD:</span> <span id="human-eth" style="color:var(--cyan)">0.00</span></div>
                 </div>
 
+                <!-- SYSTEM LOG -->
                 <div class="panel-title">SYSTEM EVENT LOG <span style="color:var(--bg-dark)">[PAGE 1]</span></div>
                 <div class="log-container" id="log-feed">
                     <div class="log-entry info">
@@ -101,6 +175,6 @@
             </aside>
         </div>
     </div>
-    <script src="script.js?v=2"></script>
+    <script src="script.js?v=3"></script>
 </body>
 </html>

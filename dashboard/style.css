@@ -10,6 +10,7 @@
     --magenta: #ff00ff;
     --panel-border: #333333;
     --grid-border: #1a1a1a;
+    --border-color: #333333;
 }
 
 * {
@@ -158,14 +159,16 @@ body {
     min-height: 0;
 }
 
-/* Event Log Sidebar */
-.event-log {
-    width: 250px;
+/* Right Column */
+.right-column {
+    width: 320px;
     display: flex;
     flex-direction: column;
     padding: 5px;
+    overflow-y: auto;
 }
 
+/* Panel Titles */
 .panel-title {
     font-size: 0.85rem;
     color: var(--bg-dark);
@@ -176,6 +179,70 @@ body {
     display: flex;
     justify-content: space-between;
 }
+
+/* ============================================================
+   SUSTAINABILITY PANEL (NEW)
+   ============================================================ */
+
+.sustainability-panel {
+    border: 1px solid var(--panel-border);
+    padding: 8px;
+    margin-bottom: 10px;
+}
+
+.energy-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px 8px;
+}
+
+.energy-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 0;
+}
+
+.energy-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+}
+
+.energy-value {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.energy-divider {
+    border-top: 1px dashed var(--panel-border);
+    margin: 6px 0;
+}
+
+/* FPGA Progress Bar */
+.fpga-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.fpga-progress-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--grid-border);
+    border: 1px solid var(--panel-border);
+    min-width: 80px;
+}
+
+.fpga-progress-fill {
+    height: 100%;
+    background: var(--success);
+    transition: width 0.5s ease;
+}
+
+/* ============================================================ */
 
 .log-container {
     flex: 1;

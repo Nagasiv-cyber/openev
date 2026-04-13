@@ -553,7 +553,7 @@ class AgentComparison:
 
 
 print("""
-✅ ADVANCED BASELINE AGENTS
+[OK] ADVANCED BASELINE AGENTS
 
 Strategies Implemented:
   1. Random Trading - FAILS (baseline for comparison)
@@ -565,8 +565,8 @@ Strategies Implemented:
   7. Risk-Aware Hybrid - BEST (combines all strategies)
 
 These agents prove that:
-  ✓ Naive strategies fail
-  ✓ Smart multi-venue trading works
-  ✓ Risk management matters
-  ✓ Alternative data adds value
+  [+] Naive strategies fail
+  [+] Smart multi-venue trading works
+  [+] Risk management matters
+  [+] Alternative data adds value
 """)
